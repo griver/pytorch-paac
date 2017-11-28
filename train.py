@@ -1,14 +1,15 @@
 import argparse
 import logging
-import sys
-import signal
 import os
-import copy
+import signal
+import sys
+
 import torch
-import utils
+
 import environment_creator
+import utils
+from networks.paac_nets import FFNetwork, LSTMNetwork
 from paac import PAACLearner
-from network import FFNetwork, LSTMNetwork
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 FF_HISTORY_WINDOW=4

@@ -2,7 +2,6 @@ import shutil
 import utils
 from utils import ensure_dir, join_path, isfile
 from lr_scheduler import LinearAnnealingLR
-
 from torch import optim, nn
 from torch.autograd import Variable
 import torch.nn.functional as F
@@ -16,7 +15,7 @@ from emulator_runner import EmulatorRunner
 
 class PAACLearner(object):
     CHECKPOINT_SUBDIR = 'checkpoints/'
-    SUMMARY_SUBDIR = 'summaries/'
+    SUMMARY_FILE = 'summaries.pkl4' #pickle, protocol=4
     CHECKPOINT_LAST = 'checkpoint_last.pth'
     CHECKPOINT_BEST = 'checkpoint_best.pth'
     CHECKPOINT_INTERVAL = 10**6
@@ -183,7 +182,7 @@ class PAACLearner(object):
                 logging.info('grad_norm: {}'.format(global_norm))
 
             if self.global_step - self.last_saving_step >= self.CHECKPOINT_INTERVAL:
-                self._save_checkpoint(self.checkpoint_dir, is_best=False)
+                self._save_progress(self.network, self.optimizer, self.checkpoint_dir, is_best=False)
                 self.last_saving_step = self.global_step
 
         self.cleanup()
@@ -239,21 +238,27 @@ class PAACLearner(object):
             return torch.load(last_chkpt_path)
         return None
 
-    def _save_checkpoint(self, dir, is_best=False):
+    def _save_progress(self, network, optimizer, dir, summaries=None, is_best=False):
         last_chkpt_path = join_path(dir, self.CHECKPOINT_LAST)
         state = {
             'last_step':self.global_step,
-            'network_state_dict': self.network.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict()
+            'network_state_dict': network.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict()
         }
         torch.save(state, last_chkpt_path)
         logging.info('The state of the agent is saved at step #%d'%self.global_step)
+
+        if (summaries is not None) and len(summaries) > 0:
+            summaries_path = join_path(dir, self.SUMMARY_FILE)
+            utils.save_summary(summaries, summaries_path)
+
         if is_best:
           best_chkpt_path = join_path(dir, self.CHECKPOINT_BEST)
           shutil.copyfile(last_chkpt_path, best_chkpt_path)
 
     def cleanup(self):
-        self._save_checkpoint(self.checkpoint_dir, is_best=False)
+        if self.global_step - self.last_saving_step > 0:
+            self._save_progress(self.network, self.optimizer, self.checkpoint_dir, is_best=False)
         self.runners.stop()
 
 

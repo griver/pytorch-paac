@@ -4,9 +4,10 @@ from mazebase.items import agents
 import mazebase.items as maze_items
 from mazebase.utils.mazeutils import choice, MazeException
 from mazebase.utils import creationutils
-from .local_grid_featurizer import featurizers, LocalGridFeaturizer
+from .taxi_featurizers import mb_featurizers, LocalViewFeaturizer, FewHotEncoder
 from six.moves import xrange
 
+import itertools
 import numpy as np
 import random as rnd
 
@@ -110,6 +111,7 @@ class TaxiGame(games.RewardOnEndMixin,
   and drops them of in the fixed target location
   '''
   def __init__(self, **kwargs):
+    self.agent_cls = TaxiAgent
     super(TaxiGame, self).__init__(**kwargs)
     # Here we directly modify BaseMazeGame.__all_possible_features property:
     features = super(TaxiGame, self).all_possible_features()
@@ -121,7 +123,7 @@ class TaxiGame(games.RewardOnEndMixin,
 
     loc = choice(creationutils.empty_locations(self,
                                                bad_blocks=[maze_items.Block]))
-    self.agent = TaxiAgent(location=loc)
+    self.agent = self.agent_cls(location=loc)
     self._add_agent(self.agent, "TaxiAgent")
 
     visited, _ = creationutils.dijkstra(self, loc,
@@ -137,9 +139,9 @@ class TaxiGame(games.RewardOnEndMixin,
     self.passenger = Passenger(location=psg_loc)
     self._add_item(self.passenger)
 
+
   def _side_information(self):
-    return super(TaxiGame, self)._side_information() + \
-           [[self.FEATURE.GOTO] + self.target.featurize()]
+    return [[None, 0]] #with accordance to the original mazebase info
 
   def _finished(self):
     psg_in_target_loc = self.passenger.location == self.target.location
@@ -169,9 +171,11 @@ def print_obs(obs, cel_len=35):
       print(line_sep)
 
 
-def main():
+
+def console_test_play():
+    obs_encoder = FewHotEncoder()
     #game = games.SingleGoal(featurizer=featurizers.GridFeaturizer())
-    featurizer = LocalGridFeaturizer(window_size=3, notify=True)
+    featurizer = LocalViewFeaturizer(window_size=3, notify=True)
     #featurizer = featurizers.RelativeGridFeaturizer(bounds=2, notify=True)
     game = TaxiGame(featurizer=featurizer)
     print('{0}:'.format(type(game).__name__))
@@ -184,8 +188,10 @@ def main():
     while not game.is_over():
         print(actions)
         obs, info = game.observe()['observation']
+        print('observations:')
         print_obs(obs)
-        featurizers.grid_one_hot(game, obs, np)
+        arr = obs_encoder.encode(obs)
+        #featurizers.grid_one_hot(game, obs, np)
         user_action(game, actions)
 
         game.display()
@@ -193,5 +199,3 @@ def main():
         print(game.target.location, game.agent.location)
         #time.sleep(1.5)
 
-
-#if __name__ == '__main__':

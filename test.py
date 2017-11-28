@@ -1,12 +1,15 @@
-import os, argparse, time
-from paac import PAACLearner
-from train import get_network_and_environment_creator
-import network
-import utils
+import argparse
+import itertools
+import time
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
-import itertools
+
+import utils
+from paac import PAACLearner
+from train import get_network_and_environment_creator
+
 
 def get_save_frame(name):
     import imageio
