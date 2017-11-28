@@ -38,7 +38,7 @@ def save_summary(obj, path, rewrite=False):
 
 def load_summary(path):
     data = []
-    with open(path, 'ba') as file:
+    with open(path, 'br') as file:
         while True:
             try:
                 data.extend(pickle.load(file))
@@ -182,4 +182,3 @@ def red(line):
 
 def yellow(line):
     return "\x1b[33;1m{0}\x1b[0m".format(line)
-

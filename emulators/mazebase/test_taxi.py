@@ -1,7 +1,7 @@
 #from emulators.mazebase.multi_task_taxi import console_test_play
 import numpy as np
 from six.moves import xrange
-from .taxi_emulator import TaxiEmulator
+from emulators import TaxiEmulator
 
 
 def print_few_hot(state, encoder, cell_len=35):
@@ -34,14 +34,14 @@ if __name__ == '__main__':
     import train_multi_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-d cpu -ew 1 -ec 2 --max_global_steps 500 -df logs_taxi'
+    args_line = '-d cpu -ew 1 -ec 2 --max_global_steps 500 -df debug_logs -m 10 10 10 10'
     print('Taxi Emulator:', TaxiEmulator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
+
+    _, env_creator = tr.get_network_and_environment_creator(args)
     print('args:')
     print(tr.args_to_str(args))
-    args.random_seed = 3
 
-    env_creator = tr.MultiTaskEnvironmentCreator(args)
     preprocess_states = env_creator.preprocess_states
     obs_shape = env_creator.obs_shape
     print('env num_actions:', env_creator.num_actions)
