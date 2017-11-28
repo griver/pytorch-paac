@@ -1,0 +1,12 @@
+# JUPYTER NOTEBOOK #
+####################
+*.ipynb
+**/.ipynb_checkpoints/
+
+# BYTECODE #
+############
+*.pyc 
+
+# IDE FOLDERS #
+###############
+**/.idea/
