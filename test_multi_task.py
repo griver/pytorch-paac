@@ -37,6 +37,7 @@ def fix_args_for_test(args, train_args):
 
     args.max_global_steps = 0
     args.debugging_folder = '/tmp/logs'
+    args.verbose = 1
     return args
 
 eval_mode = dict(
