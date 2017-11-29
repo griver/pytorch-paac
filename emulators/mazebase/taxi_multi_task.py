@@ -151,7 +151,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         return episode_configs
 
     def __init__(self, **kwargs):
-        self.max_steps = kwargs.get('max_episode_steps', 100)
+        self.max_steps = kwargs.get('max_episode_steps', 300)
         self.episode_configs = kwargs.get('episode_configs',TaxiMultiTask.create_episode_configs())
         self.task_reward = kwargs.get('task_reward', 1.)
         self.agent_cls = RestrainedMultiTaskTaxiAgent
