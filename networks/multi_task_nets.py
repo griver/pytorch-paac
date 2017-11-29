@@ -62,6 +62,12 @@ class MultiTaskFFNetwork(nn.Module):
             if 'terminal' in name:
                 yield param
 
+    def actor_critic_params(self):
+        for name, param, in self.named_parameters():
+            if 'terminal' not in name:
+                yield param
+
+
 
 class MultiTaskLSTMNetwork(nn.Module):
     def __init__(self, num_actions, observation_shape, input_types,
@@ -117,3 +123,47 @@ class MultiTaskLSTMNetwork(nn.Module):
         for name, param in self.named_parameters():
             if 'terminal' in name:
                 yield param
+
+    def actor_critic_params(self):
+        for name, param, in self.named_parameters():
+            if 'terminal' not in name:
+                yield param
+
+
+class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
+        self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
+
+        conv_and_embed_dim = 32 * H * W + self._task_embed_dim
+
+        self.lstm = nn.LSTMCell(conv_and_embed_dim, 256, bias=True)
+        self.fc_policy = nn.Linear(256, self._num_actions)
+        self.fc_value = nn.Linear(256, 1)
+        #termination classifier part:
+        self.fc_terminal1 = nn.Linear(conv_and_embed_dim, 256)
+        self.fc_terminal2 = nn.Linear(256 + self._num_actions, 2)
+
+    def forward(self, obs, task_ids, **kwargs):
+        volatile = not self.training
+        rnn_inputs = kwargs['rnn_inputs']
+        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        # obs embeds:
+        x = F.relu(self.conv1(obs))
+        x = F.relu(self.conv2(x))
+        x = x.view(x.size()[0], -1)
+        # task embeds:
+        task_ids = self.embed1(task_ids)
+        x = torch.cat((x, task_ids), 1)
+        #lstm and actor-critic outputs:
+        hx, cx = self.lstm(x, rnn_inputs)
+        state_value = self.fc_value(hx)
+        action_logits = self.fc_policy(hx)
+        #termination prediction classifier:
+        t = F.relu(self.fc_terminal1(x))
+        t = torch.cat((t, action_logits.detach()), 1)
+        termination_logits = self.fc_terminal2(t)
+
+        return state_value, action_logits, termination_logits, (hx, cx)

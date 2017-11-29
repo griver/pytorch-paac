@@ -51,7 +51,7 @@ class PAACLearner(object):
         #In most cases it’s better to use CUDA_VISIBLE_DEVICES environmental variable
         #Therefore to specify a particular gpu one should use CUDA_VISIBLE_DEVICES.
         self.use_cuda = self.args['device'] == 'gpu'
-        self.use_lstm = self.args['arch'] == 'lstm'
+        self.use_lstm = self.args['arch'] != 'ff'
         self._modeltypes = torch.cuda if self.use_cuda else torch
         self._looptypes = self._modeltypes # model
 
