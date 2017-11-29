@@ -72,9 +72,10 @@ def interactive_eval(network, env_creator, test_count, **kwargs):
         for t in itertools.count():
             inputs = preprocess_states(state, env_creator.obs_shape)
             net_output = choose_action(network, *inputs, **extra_inputs)
-            V, acts, done_probs, extra_inputs['rnn_inputs'] = net_output
+            V, acts, done_probs, extra_inputs['rnn_inputs'], info = net_output
             act = acts.data[0, 0]
-            print('{}:'.format(t), 'V(s_t):', V.data[0, 0], 'a_t:', env.legal_actions[act])
+            print('#{0} V(s_t): {1:.3f} a_t: {2}'.format(t, V.data[0, 0], env.legal_actions[act]), end=' ')
+            print('P(done): {0:.3f}'.format(info['done_probs'].data[0,1]))
             time.sleep(2.)
             print()
             act_one_hot = action_codes[act, :]
@@ -98,6 +99,7 @@ def visual_eval(network, env_creator, test_count, **kwargs):
     is_recurrent = kwargs.get('is_recurrent', False)
     termination_threshold = kwargs.get('termination_threshold', 0.5)
 
+    max_local_steps = 10
     rewards = np.zeros(test_count, dtype=np.float32)
     num_steps = np.full(test_count, float('inf'))
     action_codes = np.eye(env_creator.num_actions)
@@ -112,20 +114,22 @@ def visual_eval(network, env_creator, test_count, **kwargs):
 
         extra_inputs['rnn_inputs'] = network.get_initial_state(1) if is_recurrent else None
         env = env_creator.create_environment(i)
+
         display = env.game.display
         task = lambda: env.game.task()
-
         state = env.get_initial_state()[np.newaxis, :].astype(np.uint8)
+
+        print('map_size:', (env.game.height, env.game.width))
         display()
         print('current task:', task())
 
         for t in itertools.count():
-
             inputs = preprocess_states(state, env_creator.obs_shape)
             net_output = choose_action(network, *inputs, **extra_inputs)
-            V, acts, done_probs, extra_inputs['rnn_inputs'] = net_output
+            V, acts, done_preds, extra_inputs['rnn_inputs'], info = net_output
             act = acts.data[0, 0]
-            print('{}:'.format(t), 'V(s_t):', V.data[0, 0], 'a_t:', env.legal_actions[act])
+            print('#{0} V(s_t)={1:.3f} a_t={2}'.format(t, V.data[0, 0], env.legal_actions[act]), end=' ')
+            print('P(done)={0:.3f}'.format(info['done_probs'].data[0,1]))
 
             input('Press any button to continue..\n')
 
@@ -184,7 +188,7 @@ def stats_eval(network, env_creator, test_count, **kwargs):
     for T in itertools.count():
         for t in range(max_local_steps):
             net_output = choose_action(network, obs_t, task_t, **extra_inputs)
-            vals, acts, done_preds, extra_inputs['rnn_inputs'] = net_output
+            vals, acts, done_preds, extra_inputs['rnn_inputs'], _ = net_output
             old_task = task_t.copy()
             not_done_mask[t] = (1 - terminated) #game should be not done in the moment of prediction
 
@@ -233,7 +237,7 @@ def choose_action(network, *inputs, **kwargs):
         done_preds = done_probs.multinomial()[:,0]
     else:
         done_preds = done_probs[:,1] > kwargs['termination_threshold']
-
-    return values, acts, done_preds, rnn_state
+    extra_info = {'done_probs':done_probs, 'act_probs':a_probs}
+    return values, acts, done_preds, rnn_state, extra_info
 
 
