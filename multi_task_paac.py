@@ -35,7 +35,8 @@ class MultiTaskPAAC(PAACLearner):
         self.env_creator = env_creator
 
         self._term_model_coef = args.termination_model_coef
-        self._term_model_loss = nn.NLLLoss(weight=torch.FloatTensor([0.4, 1.6]))
+        logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
+        self._term_model_loss = nn.NLLLoss(weight=torch.FloatTensor(args.term_weights))
         if self.use_cuda:
             self._term_model_loss = self._term_model_loss.cuda()
         if hasattr(args, 'eval_every'):
@@ -148,7 +149,7 @@ class MultiTaskPAAC(PAACLearner):
             )
 
             term_loss = self.compute_termination_model_loss(log_terminals, tasks)
-            if self._term_model_coef > 0.:
+            if self._term_model_coef > 0. and self.global_step >= self.args['warmup']:
                 loss += self._term_model_coef * term_loss
 
             self.lr_scheduler.adjust_learning_rate(self.global_step)
