@@ -144,6 +144,11 @@ def get_arg_parser():
                       help='default=1. Weight of the termination model loss in the total loss')
   parser.add_argument('--eval_every', default=102400, type=int, dest='eval_every',
                       help='default=102400. Model evaluation frequency.')
+  parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
+                      help='default=[0.4, 1.6]. Class weights for the termination classifier loss.')
+  parser.add_argument('-w', '--warmup', default=0, type=int,
+                      help='default=0. A number of steps for wich we train only actor-critic!')
+
   return parser
 
 
@@ -154,4 +159,3 @@ if __name__ == '__main__':
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
     logging.debug('Saved args in the {0} folder'.format(args.debugging_folder))
     main(args)
-
