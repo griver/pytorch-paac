@@ -31,6 +31,9 @@ def float_or_none(arg_str):
 
 
 def fix_args_for_test(args, train_args):
+    if args.test_map_size is not None:
+        args.map_size = args.test_map_size
+
     for k, v in train_args.items():
         if not hasattr(args, k):
             setattr(args, k, v)
@@ -60,6 +63,11 @@ if __name__=='__main__':
         help="Device to be used ('cpu' or 'gpu'). Use CUDA_VISIBLE_DEVICES to specify a particular gpu", dest="device")
     parser.add_argument('-tt', '--termination_threshold', default=None, type=float_or_none,
                         help='A real value between [0.,1.] or None.', dest='termination_threshold')
+    parser.add_argument('--map_size', nargs=4, type=int, default=None, dest='test_map_size',
+                        help='The size of environment of shape (min_x, max_x, min_y, max_y). ' +
+                             'At the beggining of a new episode size (x,y) of a new environment ' +
+                             'will be drawn uniformly from it. If map_size is not given for the ' +
+                             ' script then a value from the training config is used.')
 
     args = parser.parse_args()
     train_args = utils.load_args(folder=args.folder, file_name=train.ARGS_FILE)
@@ -75,7 +83,7 @@ if __name__=='__main__':
     network.load_state_dict(checkpoint['network_state_dict'])
     network.eval()
 
-    use_lstm = (args.arch == 'lstm')
+    use_lstm = ('ff' not in args.arch)
     print_dict(vars(args), 'ARGS')
     print('Model was trained for {} steps'.format(checkpoint['last_step']))
     evaluate = eval_mode[args.mode]
