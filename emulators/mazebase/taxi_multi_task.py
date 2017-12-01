@@ -228,7 +228,9 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
                     loc_new= (x+move_x, y+move_y)
                     if self._in_bounds(loc_new):
                         block = self._tile_get_block(loc_new, maze_items.Block)
-                        blocks.append(block)
+                        if block is not None:
+                            blocks.append(block)
+
         blocks = rnd.sample(blocks, num_blocks)
         for b in blocks:
             self._remove_item(b.id)
