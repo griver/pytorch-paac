@@ -166,24 +166,21 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         features.sort()
 
     def _get_new_config(self, params=None):
-        choice(self.episode_configs)
         return choice(self.episode_configs)
 
     def _reset(self):
         super(TaxiMultiTask, self)._reset()
+        #print('=============RESET====================')
+        self.current_task = None
+        n_items = 2 #passenger, target
         loc_agent = choice(creationutils.empty_locations(self, bad_blocks=[maze_items.Block]))
         self.agent = self.agent_cls(location=loc_agent)
         self._add_agent(self.agent, "TaxiAgent")
 
-        visited, _ = creationutils.dijkstra(self, loc_agent,
-                                        creationutils.agent_movefunc)
-        empty_locs = set(creationutils.empty_locations(self))
-        suitable_locs = list(empty_locs & set(visited))
-        if len(suitable_locs) < 2:
-            raise MazeException('There is no enough space to place game items')
-        loc_target, loc_pass = rnd.sample(suitable_locs, 2)
-
+        placement_locs = self._get_placement_locs(loc_agent, n_items)
+        loc_target, loc_pass = rnd.sample(placement_locs, n_items)
         init_state, tasks = self._get_new_config()
+
         # check relationship between locations of the passenger and the taxi locations
         if init_state.pRt == Relation.FAR:
             self.passenger = Passenger(location=loc_pass)
@@ -193,11 +190,14 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             self._add_item(self.passenger)
             if init_state.pRt == Relation.INSIDE:
                 self.agent.actions['pickup']()
+                assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for init_state={]".format(init_state)
+
 
         self.target = maze_items.Goal(location=loc_target)
         self._add_item(self.target)
         self.current_task = 0
         self.episode_steps = 0
+
         detailed_state = dict(
             loc_a=self.agent.location,
             loc_p=self.passenger.location,
@@ -205,6 +205,33 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             is_picked_up=self.passenger.is_pickedup
         )
         self.current_config = MultiTaskEpisodeConfig(init_state=detailed_state, tasks=tasks)
+
+    def _get_placement_locs(self, agent_loc, n_required):
+        for _ in range(10):
+            visited, _ = creationutils.dijkstra(self, agent_loc,
+                                                creationutils.agent_movefunc)
+            empty_locs = set(creationutils.empty_locations(self, bad_blocks=[maze_items.Block, TaxiAgent]))
+            reachable_locs = list(empty_locs & set(visited))
+            n_lack = max(n_required - len(reachable_locs), 0)
+            if n_lack == 0:
+                break
+            self._remove_adjacent_blocks(reachable_locs + [agent_loc, ], n_lack)
+        else:
+            raise MazeException('There is no enough space to place game items')
+        return reachable_locs
+
+    def _remove_adjacent_blocks(self, reachable_locs, num_blocks):
+        moves = [(0,-1), (0,1), (-1,0), (1,0)]
+        blocks = []
+        for x,y in reachable_locs:
+            for move_x, move_y in moves:
+                    loc_new= (x+move_x, y+move_y)
+                    if self._in_bounds(loc_new):
+                        block = self._tile_get_block(loc_new, maze_items.Block)
+                        blocks.append(block)
+        blocks = rnd.sample(blocks, num_blocks)
+        for b in blocks:
+            self._remove_item(b.id)
 
     def task(self):
         if self.current_task is None:
