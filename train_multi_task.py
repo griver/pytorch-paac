@@ -10,9 +10,10 @@ import utils.eval_multi_task as evaluate
 
 from emulators import TaxiEmulator
 from multi_task_paac import MultiTaskPAAC
-from networks import MultiTaskFFNetwork, MultiTaskLSTMNetwork, MultiTaskLSTMNew, preprocess_taxi_input
+from networks import multi_task_nets, preprocess_taxi_input
 from train import bool_arg, args_to_str, setup_kill_signal_handler
 
+network_tags = list(multi_task_nets.keys())
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE = 'args_multi_task.json'
 VIEW_SIZE = (5,5)
@@ -46,13 +47,7 @@ def get_network_and_environment_creator(args, random_seed=None):
     args.num_actions = env_creator.num_actions
 
     device = args.device
-
-    if args.arch == 'lstm':
-        Network = MultiTaskLSTMNetwork
-    elif args.arch == 'ff':
-        Network = MultiTaskFFNetwork
-    elif args.arch == 'lstm2':
-        Network = MultiTaskLSTMNew
+    Network = multi_task_nets[args.arch]
 
     def network_creator():
         if device == 'gpu':
@@ -78,7 +73,6 @@ def main(args):
     logging.info('Initializing PAAC...')
 
     learner = MultiTaskPAAC(network_creator, env_creator, args)
-
 
     learner.set_eval_function(
         eval_func=evaluate.stats_eval,
@@ -134,7 +128,7 @@ def get_arg_parser():
                       help="default=8. The amount of emulator workers per agent. Default is 8.", dest="emulator_workers")
   parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                       help="Folder where to save the debugging information.", dest="debugging_folder")
-  parser.add_argument('--arch', choices=['ff', 'lstm', 'lstm2'], default='lstm',
+  parser.add_argument('--arch', choices=network_tags, default='lstm',
                       help="default=lstm. Which network architecture to use", dest="arch")
   parser.add_argument('--loss_scale', default=5., dest='loss_scaling', type=float,
                       help='default=5. Scales loss according to a given value')

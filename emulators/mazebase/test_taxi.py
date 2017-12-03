@@ -34,7 +34,7 @@ if __name__ == '__main__':
     import train_multi_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-d cpu -ew 1 -ec 2 --max_global_steps 500 -df debug_logs -m 10 10 10 10'
+    args_line = '-g taxi_game -d cpu -ew 1 -ec 2 --max_global_steps 500 -df debug_logs -m 6 6 6 6'
     print('Taxi Emulator:', TaxiEmulator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
 
@@ -48,10 +48,13 @@ if __name__ == '__main__':
 
     envs = [env_creator.create_environment(i) for i in xrange(args.emulator_counts)]
     env = envs[0]
-    print('All possible episode configurations:')
-    for i, conf in enumerate(env.game.episode_configs):
-        print(i, conf)
-    print('Mean number of tasks per episode:', np.mean([len(tasks) for state, tasks in env.game.episode_configs]))
+    if args.game == 'taxi_multi_task':
+        print('All possible episode configurations:')
+        for i, conf in enumerate(env.game.episode_configs):
+            print(i, conf)
+        n_tasks_mean =np.mean([len(tasks) for state, tasks in env.game.episode_configs])
+        print('Mean number of tasks per episode:', n_tasks_mean)
+
 
     state = env.get_initial_state()
     state, info = preprocess_states(state[np.newaxis,:], obs_shape)

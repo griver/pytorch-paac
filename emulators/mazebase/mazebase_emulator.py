@@ -56,7 +56,9 @@ class MazebaseEmulator(BaseEnvironment):
         else:
             featurizer = LocalViewFeaturizer(window_size=view_size, notify=True)
 
-        self.game = game_cls(map_size=map_size, featurizer=featurizer)
+        self.game = game_cls(map_size=map_size,
+                             featurizer=featurizer,
+                             max_episode_steps=300)
 
         state, _, _, _ = self._observe() #masebase resets games during __init__
         self.observation_shape = state.shape

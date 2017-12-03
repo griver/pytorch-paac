@@ -130,6 +130,34 @@ class MultiTaskLSTMNetwork(nn.Module):
                 yield param
 
 
+class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
+        self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
+
+        self.lstm = nn.LSTMCell(32 * H * W, 256, bias=True)
+        self.fc_policy = nn.Linear(256, self._num_actions)
+        self.fc_value = nn.Linear(256, 1)
+        self.fc_terminal = nn.Linear(256, 2)
+
+    def forward(self, obs, task_ids, **kwargs):
+        volatile = not self.training
+        rnn_inputs = kwargs['rnn_inputs']
+        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        # obs embeds:
+        x = F.relu(self.conv1(obs))
+        x = F.relu(self.conv2(x))
+        x = x.view(x.size()[0], -1)
+        # lstm and last layers:
+        hx, cx = self.lstm(x, rnn_inputs)
+        state_value = self.fc_value(hx)
+        action_logits = self.fc_policy(hx)
+        terminal_logits = self.fc_terminal(hx)
+        return state_value, action_logits, terminal_logits, (hx, cx)
+
+
 class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
     def _create_network(self):
         C, H, W = self._obs_shape
@@ -167,3 +195,11 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         termination_logits = self.fc_terminal2(t)
 
         return state_value, action_logits, termination_logits, (hx, cx)
+
+
+network_dict = {
+    'lstm': MultiTaskLSTMNetwork,
+    'lstm_new': MultiTaskLSTMNew,
+    'lstm_paac': TaxiLSTMNetwork,
+    'ff': MultiTaskFFNetwork,
+}
