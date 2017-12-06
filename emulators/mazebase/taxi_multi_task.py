@@ -278,6 +278,21 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
     def _finished(self):
         return (self.current_task == None) or (self.episode_steps >= self.max_steps)
 
+    def min_steps_to_complete(self,):
+        task = self.task()
+        a, p, t = self.agent, self.passenger, self.target
+        dist = lambda loc1, loc2: abs(loc1[0]-loc2[0]) + abs(loc1[1]-loc2[1])
+
+        if task == Task.REACH_P:
+            return dist(a.location, p.location)
+        elif task == Task.REACH_D:
+            return dist(a.location, t.location)
+        elif task == Task.PICKUP:
+            return 0 if p.is_pickedup else dist(a.location, p.location)+1
+        elif task == task.DROPOFF:
+            return 1 if p.is_pickedup else dist(a.location, p.location)+2
+        elif task is None:
+            return 0
 
 def print_few_hot(obs, encoder, cell_len=35):
     line_sep = '\n'+'-'*(cell_len+1)*3

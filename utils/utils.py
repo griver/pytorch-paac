@@ -176,6 +176,15 @@ class BinaryClassificationStats(object):
     def size(self):
         return self.preds_pos + self.preds_neg
 
+    def pretty_print(self):
+        print('BinaryClassificationStats:')
+        print('Number of samples:', self.size)
+        print('Accuracy: {0:.2f}%'.format(self.accuracy))
+        print('Precision: {0:.2f}%'.format(self.precision))
+        print('Recall: {0:.2f}%'.format(self.recall))
+        print('targets_ratio: {0:.2f}%'.format(self.targets_ratio))
+        print('predictions_ratio: {0:.2f}%'.format(self.predictions_ratio))
+
 
 def red(line):
     return "\x1b[31;1m{0}\x1b[0m".format(line)
