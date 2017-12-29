@@ -1,10 +1,10 @@
 from mazebase import games
-from mazebase.items import agents
 import mazebase.items as maze_items
+import copy
 from mazebase.utils.mazeutils import choice, MazeException
 from mazebase.utils import creationutils
 from .taxi_featurizers import  LocalViewFeaturizer, GlobalViewFeaturizer, FewHotEncoder
-from six.moves import xrange
+
 from .taxi_game import Passenger, TaxiAgent, print_obs, user_action, rnd
 
 from collections import namedtuple
@@ -140,6 +140,10 @@ def generate_task_seqs(graph, min_length, max_length):
 
 
 class TaxiMultiTask(games.WithWaterAndBlocksMixin):
+    ItemRelation = Relation
+    InitState = TaxiGameState
+    Tasks = Task
+
     @staticmethod
     def create_episode_configs(min_tasks_number=2, max_tasks_number=3):
         graph = create_taxi_graph()
@@ -171,7 +175,6 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
     def _reset(self):
         super(TaxiMultiTask, self)._reset()
         #print('=============RESET====================')
-        self.current_task = None
         n_items = 2 #passenger, target
         loc_agent = choice(creationutils.empty_locations(self, bad_blocks=[maze_items.Block]))
         self.agent = self.agent_cls(location=loc_agent)
@@ -192,12 +195,10 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
                 self.agent.actions['pickup']()
                 assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for init_state={]".format(init_state)
 
-
         self.target = maze_items.Goal(location=loc_target)
         self._add_item(self.target)
         self.current_task = 0
         self.episode_steps = 0
-
         detailed_state = dict(
             loc_a=self.agent.location,
             loc_p=self.passenger.location,
@@ -294,50 +295,64 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         elif task is None:
             return 0
 
-def print_few_hot(obs, encoder, cell_len=35):
-    line_sep = '\n'+'-'*(cell_len+1)*3
-    cell_str = '{0:^' + str(cell_len) + '}'
-    legend = sorted((i, f) for f, i in encoder.feat2id.items())
-    print('Legend:', legend)
 
-    img = encoder.encode(obs)
-    xd,yd,zd = img.shape
-    # transpose first two dimentions
-    for y in reversed(xrange(yd)):  # rows goes from lowest to highest
-        for x in xrange(xd):
-            value = ''.join(map(lambda x: str(int(x)), img[x,y]))
-            print(cell_str.format(value), end='|')
-        print(line_sep)
+class FixedTaxiMultiTask(TaxiMultiTask):
 
+    def __init__(self, **kwargs):
+        self.repeat_episode = False  # if self.full_reset is True then
+        self.initial_game_state = None
+        super(FixedTaxiMultiTask, self).__init__(**kwargs)
 
-def console_test_play(n_episodes=3):
-    print('all taxi tasks:', {t.value:t.name for t in Task})
-    obs_encoder = FewHotEncoder()
-    featurizer = LocalViewFeaturizer(window_size=3, notify=True)
-    game = TaxiMultiTask(featurizer=featurizer)
-#    game = TaxiGame(featurizer=featurizer)
-    print('{0}:'.format(type(game).__name__))
-    actions = game.actions()
-    for i, act in enumerate(actions):
-      print(i, act)
-    for _ in xrange(n_episodes):
-        print('START A NEW EPISODE!')
-        game.reset()
-        print(game.current_config.init_state)
-        game.display()
-        while not game.is_over():
-            print(actions)
-            obs, info = game.observe()['observation']
-            print('observations:')
-            print_obs(obs)
-            print('side_info:', info)
-            #print_few_hot(obs, obs_encoder)
-            # featurizers.grid_one_hot(game, obs, np)
-            user_action(game, actions)
-            print('reward:', game.reward(), 'total R:', game.reward_so_far())
-            print('next state:')
-            game.display()
+    def _reset(self):
+        if self.repeat_episode is True:
+            self.restore(self.initial_game_state)
+        else:
+            super(FixedTaxiMultiTask, self)._reset()
+            self.initial_game_state = self.collect_state_info(self)
 
+    def collect_state_info(self, taxi_game):
+        state = {}
+        state['width'] = taxi_game.width
+        state['height'] = taxi_game.height
+        block_locs = []
+        water_locs = []
+        for x in range(state['height']):
+            for y in range(state['height']):
+                for item in taxi_game._get_items(location=(x,y)):
+                    if isinstance(item, maze_items.Block):
+                       block_locs.append((x,y))
+                    if isinstance(item, maze_items.Water):
+                       water_locs.append((x,y))
 
+        state['block_locs'] = block_locs
+        state['water_locs'] = water_locs
+        state['config'] = taxi_game.current_config
+        return state
 
-    print('done!')
+    def restore(self, state_info):
+        self.current_task = 0
+        self.episode_steps = 0
+
+        self.width = state_info['width']
+        self.height = state_info['height']
+        self._map = [[[] for x in range(self.height)]
+                     for y in range(self.width)]
+        self._approx_reward_map = [
+            [-self.turn_penalty for x in range(self.height)] for y in range(self.width)
+        ]
+
+        for loc in state_info['block_locs']:
+            self._add_item(maze_items.Block(location=loc))
+        for loc in state_info['water_locs']:
+            self._add_item(maze_items.Water(location=loc))
+
+        init_state, tasks = state_info['config']
+        self.agent = self.agent_cls(location=init_state['loc_a'])
+        self._add_agent(self.agent, "TaxiAgent")
+        self.target = maze_items.Goal(location=init_state['loc_t'])
+        self._add_item(self.target)
+        self.passenger = Passenger(location=init_state['loc_p'])
+        self._add_item(self.passenger)
+        if init_state['is_picked_up']:
+            self.agent.actions['pickup']()
+        self.current_config = state_info['config']
