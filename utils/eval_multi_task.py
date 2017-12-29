@@ -2,7 +2,7 @@ import numpy as np
 import itertools, copy
 from torch.nn import functional as F
 import torch as th
-import logging
+import logging, copy
 from .utils import BinaryClassificationStats
 
 def set_user_defined_episodes(env):
@@ -19,7 +19,7 @@ def set_user_defined_episodes(env):
     def choose_new_config():
         print('Select one of the following initial configurations:')
         for i, init in enumerate(init_confs):
-          print(i, init)
+           print(i, init)
         init_id = int(input('Input the index of chosen config:'))
         init_config = init_confs[init_id]
         print('All possible tasks:', [t.name for t in tasks])

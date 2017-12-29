@@ -1,12 +1,13 @@
 from .mazebase_emulator import *
 
 from .taxi_game import TaxiGame, FewHotEncoder
-from .taxi_multi_task import TaxiMultiTask
+from .taxi_multi_task import TaxiMultiTask, FixedTaxiMultiTask
 
 
 TAXI_CLASSES = frozenset([
     TaxiGame,
-    TaxiMultiTask
+    TaxiMultiTask,
+    FixedTaxiMultiTask
 ])
 
 TAXI_GAMES = {camel_to_snake_case(cls.__name__):cls for cls in TAXI_CLASSES}
