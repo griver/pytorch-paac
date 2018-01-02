@@ -23,7 +23,7 @@ def get_save_frame(name):
 
 def add_gif_processor(envs):
 
-    for i, environment in enumerate(environments):
+    for i, environment in enumerate(envs):
         path = utils.join_path(args.gif_folder, args.gif_name + str(i))
         environment.on_new_frame = get_save_frame()
 
@@ -58,12 +58,11 @@ def play(network, envs, args, is_recurrent=False):
             states[i], _, _ = env.next(env.get_noop())
 
     print('Use stochasitc policy' if not args.greedy else 'Use deterministic policy')
-    #print('play games for 10 steps:')
+
     for t in itertools.count():
-        #print('STEP#%d:' % t)
         acts, extra_states = choose_action(network, states, extra_states, greedy=args.greedy)
-        #print('acts:', acts, sep='\n')
         acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(),:]
+
         for env_id, env in enumerate(envs):
             if not terminated[env_id]:
                 s, r, is_done= env.next(acts_one_hot[env_id])
@@ -71,8 +70,10 @@ def play(network, envs, args, is_recurrent=False):
                 rewards[env_id] += r
                 terminated[env_id] = is_done
                 num_steps[env_id] = t+1
-            #print('env#{0}: R={1}, is_done={2}, N={3}'.format(env_id, rewards[env_id], terminated[env_id], num_steps[env_id]))
         if all(terminated): break
+
+
+
     return num_steps, rewards
 
 
@@ -83,7 +84,7 @@ def choose_action(network, state, extra_input=None, greedy=False):
       _, a_logits = network(state)
       extra_output = None
 
-    a_probs = F.softmax(a_logits)
+    a_probs = F.softmax(a_logits, dim=1)
     if not greedy:
       acts = a_probs.multinomial()
     else:

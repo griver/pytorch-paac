@@ -225,8 +225,8 @@ def choose_action(network, *inputs, **kwargs):
         values, a_logits, done_logits = network(*inputs)
         rnn_state = None
 
-    a_probs = F.softmax(a_logits, dim=0)
-    done_probs = F.softmax(done_logits, dim=0)
+    a_probs = F.softmax(a_logits, dim=1)
+    done_probs = F.softmax(done_logits, dim=1)
 
     if not kwargs['greedy']:
         acts = a_probs.multinomial()

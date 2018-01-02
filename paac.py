@@ -193,8 +193,8 @@ class PAACLearner(object):
             values, a_logits, lstm_state = self.network(inputs)
         else:
             values, a_logits = self.network(inputs)
-        probs = F.softmax(a_logits, dim=0)
-        log_probs = F.log_softmax(a_logits, dim=0)
+        probs = F.softmax(a_logits, dim=1)
+        log_probs = F.log_softmax(a_logits, dim=1)
         entropy = torch.neg((log_probs * probs)).sum(1)
         acts = probs.multinomial().detach()
         selected_log_probs = log_probs.gather(1, acts)

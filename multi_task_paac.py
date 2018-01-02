@@ -191,9 +191,9 @@ class MultiTaskPAAC(PAACLearner):
         else:
             values, a_logits, done_logits = self.network(*inputs)
 
-        log_done = F.log_softmax(done_logits, dim=0)
-        probs = F.softmax(a_logits, dim=0)
-        log_probs = F.log_softmax(a_logits, dim=0)
+        log_done = F.log_softmax(done_logits, dim=1)
+        probs = F.softmax(a_logits, dim=1)
+        log_probs = F.log_softmax(a_logits, dim=1)
         entropy = torch.neg((log_probs * probs)).sum(1)
         acts = probs.multinomial().detach()
         selected_log_probs = log_probs.gather(1, acts)
