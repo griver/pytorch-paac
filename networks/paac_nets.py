@@ -40,7 +40,7 @@ class FFNetwork(nn.Module):
         x = x.view(x.size()[0], -1)
         x = F.relu(self.fc3(x))
         # in pytorch A3C an author just outputs logits(the softmax input).
-        # action_probs = F.softmax(self.fc_policy(x))
+        # action_probs = F.softmax(self.fc_policy(x), dim=0)
         # model outputs logits to be able to compute log_probs via log_softmax later.
         action_logits = self.fc_policy(x)
         state_value = self.fc_value(x)
