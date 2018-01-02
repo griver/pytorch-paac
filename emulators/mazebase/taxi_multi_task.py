@@ -194,9 +194,6 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             self._add_item(self.passenger)
             if init_state.pRt == Relation.INSIDE:
                 self.agent.actions['pickup']()
-                #if not self.passenger.is_pickedup:
-                #    print('Очень странные дела творяться!')
-                #    self.agent.actions['pickup']()
                 assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for init_state={}".format(init_state)
 
         self.target = maze_items.Goal(location=loc_target)
