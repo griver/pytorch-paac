@@ -1,11 +1,11 @@
-from environment import BaseEnvironment #TODO: Create a package
-import mazebase.games as games
-from mazebase.games import featurizers
-from mazebase.games import curriculum
-import numpy as np
-from .taxi_featurizers import LocalViewFeaturizer, GlobalViewFeaturizer
-
 import logging
+
+import mazebase.games as games
+import numpy as np
+from mazebase.games import featurizers
+
+from ..environment import BaseEnvironment
+from .taxi_featurizers import LocalViewFeaturizer, GlobalViewFeaturizer
 
 DEFAULT_LOCAL_VIEW_SIZE = (5,5)
 DEFAULT_MAP_SIZE = (5,10,5,10)
@@ -63,7 +63,8 @@ class MazebaseEmulator(BaseEnvironment):
         state, _, _, _ = self._observe() #masebase resets games during __init__
         self.observation_shape = state.shape
         self.legal_actions = self.game.actions()
-        self.noop = np.array([a == 'pass' for a in self.legal_actions], dtype=np.float32)
+        assert 'pass' in self.legal_actions, 'There should be noop action among the available actions!'
+        self.noop = 'pass'
         self.id = actor_id
         if args.verbose > 2:
             logging.debug('Intializing mazebase.{0} emulator_id={1}'.format(args.game, self.id))
@@ -87,7 +88,6 @@ class MazebaseEmulator(BaseEnvironment):
         state = featurizers.grid_one_hot(self.game, state, np=np)
         state = state.transpose((2,0,1)) #images go in the [C,H,W] shape for pytorch
         return state, game_data['reward'], self.game.is_over(), info
-
 
     def next(self, action):
         '''

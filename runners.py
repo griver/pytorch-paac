@@ -36,7 +36,6 @@ class Runners(object):
         :param array: the array to be shared
         :return: the RawArray backed numpy array
         """
-
         dtype = self.NUMPY_TO_C_DTYPE[array.dtype.type]
 
         shape = array.shape

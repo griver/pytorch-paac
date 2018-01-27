@@ -8,10 +8,10 @@ import torch
 import utils
 import utils.eval_multi_task as evaluate
 
-from emulators import TaxiEmulator
+from emulators import get_taxi_emulator_cls
 from multi_task_paac import MultiTaskPAAC
 from networks import multi_task_nets, preprocess_taxi_input
-from train import bool_arg, args_to_str, setup_kill_signal_handler
+from train import args_to_str, setup_kill_signal_handler
 
 network_tags = list(multi_task_nets.keys())
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
@@ -21,6 +21,7 @@ MAP_SIZE = (5,5,5,5)
 
 class MultiTaskEnvironmentCreator(object):
     def __init__(self, args):
+        TaxiEmulator = get_taxi_emulator_cls()
         self.create_environment = lambda i: TaxiEmulator(i, args)
         test_env = self.create_environment(-1)
         self.num_actions = len(test_env.legal_actions)

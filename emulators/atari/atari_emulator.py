@@ -1,8 +1,10 @@
+import random
+
 import numpy as np
 from ale_python_interface import ALEInterface
 from scipy.misc import imresize
-import random
-from environment import BaseEnvironment, FramePool,ObservationPool
+
+from ..environment import BaseEnvironment, FramePool, ObservationPool
 
 IMG_SIZE_X = 84
 IMG_SIZE_Y = 84
@@ -23,7 +25,7 @@ class AtariEmulator(BaseEnvironment):
         self.ale.setInt(b"frame_skip", 1)
         self.ale.setBool(b"color_averaging", False)
 
-        full_rom_path = args.rom_path + "/" + args.game + ".bin"
+        full_rom_path = args.resource_folder + "/" + args.game + ".bin"
         self.ale.loadROM(str.encode(full_rom_path))
         self.legal_actions = self.ale.getMinimalActionSet()
         self.screen_width, self.screen_height = self.ale.getScreenDims()
@@ -33,9 +35,9 @@ class AtariEmulator(BaseEnvironment):
         self.single_life_episodes = args.single_life_episodes
         self.call_on_new_frame = args.visualize
         self.history_window = args.history_window
-        # Processed historcal frames that will be fed in to the network
-        # (i.e., four 84x84 images)
-        self.observation_pool = ObservationPool(np.zeros((self.history_window, IMG_SIZE_X, IMG_SIZE_Y), dtype=np.uint8))
+        self.observation_shape = (self.history_window, IMG_SIZE_X, IMG_SIZE_Y)
+        # Processed historcal frames that will be fed in to the network (i.e., four 84x84 images)
+        self.observation_pool = ObservationPool(np.zeros(self.observation_shape, dtype=np.uint8))
         self.rgb_screen = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
         self.gray_screen = np.zeros((self.screen_height, self.screen_width,1), dtype=np.uint8)
         self.frame_pool = FramePool(np.empty((2, self.screen_height,self.screen_width), dtype=np.uint8),
@@ -116,4 +118,4 @@ class AtariEmulator(BaseEnvironment):
         return self.ale.game_over()
 
     def get_noop(self):
-        return [1.0, 0.0]
+        return self.legal_actions[0]

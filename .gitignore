@@ -10,3 +10,7 @@
 # IDE FOLDERS #
 ###############
 **/.idea/
+
+# ViZDoom #
+###########
+_vizdoom.ini

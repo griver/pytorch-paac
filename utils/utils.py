@@ -22,12 +22,12 @@ def load_args(folder, file_name='args.json'):
         return json.load(f)
 
 
-def save_args(args, folder, file_name='args.json'):
-    args = vars(args)
+def save_args(args, folder, file_name='args.json', exclude_args=tuple()):
+    save_args = {k:v for k,v in vars(args).items() if k not in exclude_args}
     file_path = join_path(folder, file_name)
     ensure_dir(file_path)
     with open(file_path, 'w') as f:
-        return json.dump(args, f)
+        return json.dump(save_args, f)
 
 
 def save_summary(obj, path, rewrite=False):

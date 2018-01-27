@@ -25,7 +25,7 @@ class EmulatorRunner(Process):
                 new_s, reward, episode_over = emulator.next(action)
                 if episode_over:
                     self.variables[0][i] = emulator.get_initial_state()
-                else:
+                else: #so we never return terminal states
                     self.variables[0][i] = new_s
                 self.variables[1][i] = reward
                 self.variables[2][i] = episode_over

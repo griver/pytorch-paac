@@ -44,6 +44,8 @@ def play(network, envs, args, is_recurrent=False):
     rewards = np.zeros(args.test_count, dtype=np.float32)
     num_steps = np.full(len(envs), float('inf'))
     action_codes = np.eye(args.num_actions)
+    noop = np.array([a == envs[0].get_noop() for a in envs[0].legal_actions])
+
     if is_recurrent:
       rnn_init = network.get_initial_state(len(envs))
       extra_states = rnn_init
@@ -55,7 +57,7 @@ def play(network, envs, args, is_recurrent=False):
 
     for i, env in enumerate(envs):
         for _ in range(np.random.randint(args.noops+1)):
-            states[i], _, _ = env.next(env.get_noop())
+            states[i], _, _ = env.next(noop)
 
     print('Use stochasitc policy' if not args.greedy else 'Use deterministic policy')
 
@@ -93,7 +95,7 @@ def choose_action(network, state, extra_input=None, greedy=False):
 
 def fix_args_for_test(args, train_args):
     for k, v in train_args.items():
-        if k != 'device':
+        if not hasattr(args, k):
             setattr(args, k, v)
 
     args.max_global_steps = 0
@@ -110,6 +112,8 @@ def fix_args_for_test(args, train_args):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--folder', type=str, help="Folder where to save the debugging information.", dest="folder", required=True)
+    parser.add_argument('-rf', '--resource_folder', default='./resources/atari_roms',
+        help='Directory with files required for the game initialization(i.e. binaries for ALE and scripts for ViZDoom)', dest="resource_folder")
     parser.add_argument('-tc', '--test_count', default='1', type=int, help="The amount of tests to run on the given network", dest="test_count")
     parser.add_argument('-np', '--noops', default=30, type=int, help="Maximum amount of no-ops to use", dest="noops")
     parser.add_argument('-gn', '--gif_name', default=None, type=str, help="If provided, a gif will be produced and stored with this name", dest="gif_name")

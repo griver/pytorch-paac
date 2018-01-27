@@ -7,24 +7,28 @@ from torch.autograd import Variable
 import numpy as np
 
 
-def preprocess_states(s, volatile=False):
+def preprocess_states(s, t_types, volatile=False):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
     states = torch.from_numpy(np.ascontiguousarray(s ,dtype=np.float32)/255.)
-    return Variable(states, volatile=volatile)
+    return Variable(states, volatile=volatile).type(t_types.FloatTensor)
 
 
 class FFNetwork(nn.Module):
-    def __init__(self, num_actions, input_type, input_channels=4):
+    def __init__(self, num_actions, observation_shape, input_types,
+                 preprocess=preprocess_states):
         super(FFNetwork, self).__init__()
         self._num_actions = num_actions
-        self._input_type = input_type
-        self._create_network(input_channels)
+        self._intypes = input_types
+        self._obs_shape = observation_shape
+        self._preprocess = preprocess
+        self._create_network()
         #recursivly traverse layers and inits weights and biases:
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
 
-    def _create_network(self, in_channels):
-        self.conv1 = nn.Conv2d(in_channels, 16, (8,8), stride=4)
+    def _create_network(self,):
+        C,H,W = self._obs_shape
+        self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
         self.conv2 = nn.Conv2d(16, 32, (4,4), stride=2)
         #if input shape equals (4, 84,84) then the conv part output shape is: (32, 9, 9)
         #self.__flatten_conv_size = 32*9*9
@@ -34,7 +38,7 @@ class FFNetwork(nn.Module):
 
     def forward(self, inputs):
         volatile = not self.training
-        inputs = preprocess_states(inputs, volatile).type(self._input_type)
+        inputs = self._preprocess(inputs, self._intypes, volatile)
         x = F.relu(self.conv1(inputs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
@@ -48,17 +52,21 @@ class FFNetwork(nn.Module):
 
 
 class LSTMNetwork(nn.Module):
-    def __init__(self, num_actions, input_type, input_channels=1):
+    def __init__(self, num_actions, observation_shape, input_types,
+                 preprocess=preprocess_states):
         super(LSTMNetwork, self).__init__()
         self._num_actions = num_actions
-        self._input_type = input_type
-        self._create_network(input_channels)
+        self._obs_shape = observation_shape
+        self._intypes = input_types
+        self._preprocess = preprocess
+        self._create_network()
         #recursivly traverse layers and inits weights and biases:
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
 
-    def _create_network(self, in_channels):
-        self.conv1 = nn.Conv2d(in_channels, 16, (8,8), stride=4)
+    def _create_network(self):
+        C,H,W = self._obs_shape
+        self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
         self.conv2 = nn.Conv2d(16, 32, (4,4), stride=2)
         self.lstm = nn.LSTMCell(32*9*9, 256, bias=True)
         self.fc_policy = nn.Linear(256, self._num_actions)
@@ -67,7 +75,7 @@ class LSTMNetwork(nn.Module):
     def forward(self, inputs):
         volatile = not self.training
         inputs, rnn_inputs = inputs
-        inputs = preprocess_states(inputs, volatile).type(self._input_type)
+        inputs = self._preprocess(inputs, self._intypes, volatile)
         x = F.relu(self.conv1(inputs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
@@ -80,9 +88,38 @@ class LSTMNetwork(nn.Module):
         Intial lstm state is supposed to be used at the begging of an episode.
         '''
         volatile = not self.training
-        hx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._input_type)
-        cx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._input_type)
+        t_type = self._intypes.FloatTensor
+        hx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
+        cx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
         return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
+
+
+class VizdoomLSTM(LSTMNetwork):
+
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        hidden_dim = 256
+        self.conv1 = nn.Conv2d(C, 16, (4, 4), stride=2)
+        self.conv2 = nn.Conv2d(16, 32, (4, 4), stride=2)
+        self.conv3 = nn.Conv2d(32,32, (3,3), stride=2)
+
+        convs = [self.conv1, self.conv2, self.conv3]
+        C_out,H_out,W_out = calc_output_shape((C,H,W), convs)
+
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out, hidden_dim, bias=True)
+        self.fc_policy = nn.Linear(hidden_dim, self._num_actions)
+        self.fc_value = nn.Linear(hidden_dim, 1)
+
+    def forward(self, inputs):
+        volatile = not self.training
+        inputs, rnn_inputs = inputs
+        x = self._preprocess(inputs, self._intypes, volatile)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = x.view(x.size()[0], -1)
+        hx, cx = self.lstm(x, rnn_inputs)
+        return self.fc_value(hx), self.fc_policy(hx), (hx,cx)
 
 
 def init_lstm(module, forget_bias=1.0):
@@ -134,3 +171,12 @@ def init_model_weights(module):
     elif isinstance(module, nn.LSTMCell):
         #print('LSTM_INIT:', module)
         init_lstm(module)
+
+
+def calc_output_shape(obs_dims, net_layers):
+    rnd_input = torch.randn(1, *obs_dims)  # batch_size=1
+    x = Variable(rnd_input, volatile=True)
+    for l in net_layers:
+        x = l(x)
+    return x.size()[1:]
+

@@ -1,5 +1,5 @@
-from .mazebase.mazebase_emulator import MazebaseEmulator, MAZEBASE_GAMES
-from .atari.atari_emulator import AtariEmulator
-from .mazebase.taxi_emulator import TaxiEmulator, TAXI_GAMES
+from .atari import AtariGamesCreator
+from .mazebase import TaxiGamesCreator, MazebaseGamesCreator
+from .vizdoom import VizdoomGamesCreator
 
-emulators = [MazebaseEmulator, TaxiEmulator, AtariEmulator]
+game_creators = [VizdoomGamesCreator, AtariGamesCreator, TaxiGamesCreator, MazebaseGamesCreator]
