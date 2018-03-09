@@ -64,11 +64,12 @@ def play(network, envs, args, is_recurrent=False):
     for t in itertools.count():
         acts, extra_states = choose_action(network, states, extra_states, greedy=args.greedy)
         acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(),:]
-
+        time.sleep(1)
         for env_id, env in enumerate(envs):
             if not terminated[env_id]:
                 s, r, is_done= env.next(acts_one_hot[env_id])
-                states[env_id] = s
+                if not is_done:
+                    states[env_id] = s
                 rewards[env_id] += r
                 terminated[env_id] = is_done
                 num_steps[env_id] = t+1
@@ -93,29 +94,44 @@ def choose_action(network, state, extra_input=None, greedy=False):
       _, acts = a_probs.max(1, keepdim=True)
     return acts, extra_output
 
+
 def fix_args_for_test(args, train_args):
     for k, v in train_args.items():
-        if not hasattr(args, k):
+        if getattr(args, k, None) == None: #this includes cases where args.k is None
             setattr(args, k, v)
 
     args.max_global_steps = 0
     args.debugging_folder = '/tmp/logs'
     args.random_start = False
     args.single_life_episodes = False
-    if args.gif_name:
-      args.visualize = 1
     rng = np.random.RandomState(int(time.time()))
     args.random_seed = rng.randint(1000)
 
+    if getattr(args, 'framework', None) == 'vizdoom':
+        args.reward_coef = 1.
+        args.noops = 0 # Maximum amount of no-ops to use
+        args.visualize = (args.test_count == 1)
+    else:
+        args.noops = 30
+        args.visualize = (args.gif_name != None)
+
     return args
+
+
+def load_trained_network(net_creator, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
+    network = net_creator()
+    network.load_state_dict(checkpoint['network_state_dict'])
+    return network, checkpoint['last_step']
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--folder', type=str, help="Folder where to save the debugging information.", dest="folder", required=True)
-    parser.add_argument('-rf', '--resource_folder', default='./resources/atari_roms',
-        help='Directory with files required for the game initialization(i.e. binaries for ALE and scripts for ViZDoom)', dest="resource_folder")
-    parser.add_argument('-tc', '--test_count', default='1', type=int, help="The amount of tests to run on the given network", dest="test_count")
-    parser.add_argument('-np', '--noops', default=30, type=int, help="Maximum amount of no-ops to use", dest="noops")
+    parser.add_argument('-rf', '--resource_folder', default=None,
+        help="""default=None. If not specified the value from the training args is used.
+         Directory with files required for the game initialization
+         (i.e. binaries for ALE and scripts for ViZDoom)""", dest="resource_folder")
+    parser.add_argument('-tc', '--test_count', default=1, type=int, help="The amount of tests to run on the given network", dest="test_count")
     parser.add_argument('-gn', '--gif_name', default=None, type=str, help="If provided, a gif will be produced and stored with this name", dest="gif_name")
     parser.add_argument('-gf', '--gif_folder', default='gifs/', type=str, help="The folder where to save gifs.", dest="gif_folder")
     parser.add_argument('-g', '--greedy', action='store_true', help='Determines whether to use a stochastic or deterministic policy')
@@ -129,13 +145,12 @@ if __name__=='__main__':
     checkpoint_path = utils.join_path(
         args.folder, PAACLearner.CHECKPOINT_SUBDIR, PAACLearner.CHECKPOINT_LAST
     )
-    checkpoint = torch.load(checkpoint_path)
     net_creator, env_creator = get_network_and_environment_creator(args)
-    network = net_creator()
-    network.load_state_dict(checkpoint['network_state_dict'])
+    network, steps_trained = load_trained_network(net_creator, checkpoint_path)
     network.eval()
 
     envs = [env_creator.create_environment(i) for i in range(args.test_count)]
+
     use_lstm = (args.arch == 'lstm')
     if args.gif_name is not None:
         gif_path = utils.join_path(args.gif_folder, args.gif_name)
@@ -145,7 +160,7 @@ if __name__=='__main__':
             env.on_new_frame = get_save_frame(gif_path.format(i))
 
     print_dict(vars(args), 'ARGS')
-    print('Model was trained for {} steps'.format(checkpoint['last_step']))
+    print('Model was trained for {} steps'.format(steps_trained))
     num_steps, rewards = play(network, envs, args, is_recurrent=use_lstm)
     print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
     print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))

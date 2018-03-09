@@ -14,7 +14,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 FF_HISTORY_WINDOW=4
 LSTM_HISTORY_WINDOW=1
 ARGS_FILE='args.json'
-vz_nets = {'lstm': VizdoomLSTM, 'ff':FFNetwork}
+vz_nets = {'lstm': VizdoomLSTM}
 atari_nets = {'lstm': LSTMNetwork, 'ff':FFNetwork}
 
 def args_to_str(args):

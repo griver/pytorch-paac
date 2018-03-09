@@ -1,5 +1,6 @@
 from ..environment_creator import BaseEnvironmentCreator
 
+
 class VizdoomGamesCreator(BaseEnvironmentCreator):
 
     @staticmethod

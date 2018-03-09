@@ -33,6 +33,8 @@ class VizdoomEmulator(BaseEnvironment):
     DEFAULT_ACTION_REPEAT = 6  # default is 12
     DEFAULT_SCREEN_SIZE = (60, 90)  # default is (30,45)
     DEFAULT_REWARD_COEF = 1 / 100
+    SCREEN_RESOLUTION = ScreenResolution.RES_320X240
+    MODE = Mode.PLAYER
 
     def __init__(self, actor_id, args):
         if getattr(args, 'verbose', 0) > 2:
@@ -42,21 +44,18 @@ class VizdoomEmulator(BaseEnvironment):
         game.load_config(config_file_path)
         visualize = getattr(args, 'visualize', False)
         game.set_window_visible(visualize)
-        game.set_mode(Mode.PLAYER)
-        game.set_screen_format(ScreenFormat.GRAY8)
-        game.set_screen_resolution(ScreenResolution.RES_320X240)#640X420
+        game.set_screen_resolution(self.SCREEN_RESOLUTION)#640X420
+        game.set_mode(self.MODE)
+        if self.MODE == Mode.SPECTATOR:
+            game.add_game_args("+freelook 1")
+
         # with a fixed seed all episodes in this environment will be identical
         #game.set_seed(args.random_seed)
         # game.add_available_game_variable(vizdoom.GameVariable.AMMO2)
         game.init()
         self.game = game
+        self.legal_actions, self.noop = self._define_actions(self.game)
 
-        n_buttons = self.game.get_available_buttons_size()
-        self.legal_actions = [
-            list(a) for a in it.product([0,1], repeat=n_buttons)
-        ]
-        # no-action/pass equals to the condition when no button is pressed
-        self.noop = [0 for _ in range(n_buttons)]
         self._preprocess = cv2_resize
         self.screen_size = getattr(args, 'screen_size', self.DEFAULT_SCREEN_SIZE)
         self.reward_coef = getattr(args, 'reward_coef', self.DEFAULT_REWARD_COEF)
@@ -70,6 +69,14 @@ class VizdoomEmulator(BaseEnvironment):
         # Therefore it doesn't really matter that terminal_screen is None
         self.terminal_obs = None
 
+    def _define_actions(self, initialized_game):
+        n_buttons = initialized_game.get_available_buttons_size()
+        legal_actions = [
+            list(a) for a in it.product([0, 1], repeat=n_buttons)
+        ]
+        # no-action/pass equals to the condition when no button is pressed
+        noop = [0 for _ in range(n_buttons)]
+        return legal_actions, noop
 
     def get_initial_state(self):
         """Starts a new episode and returns its initial state"""
