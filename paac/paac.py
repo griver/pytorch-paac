@@ -42,7 +42,6 @@ class PAACLearner(object):
         self.optimizer = optim.RMSprop(
             self.network.parameters(),
             lr=self.args['initial_lr'],
-            alpha=self.args['alpha'],
             eps=self.args['e'],
         ) #RMSprop defualts: momentum=0., centered=False, weight_decay=0
 
