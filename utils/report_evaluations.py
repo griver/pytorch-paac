@@ -72,7 +72,7 @@ def custom_task_eval(network, env_creator, test_count, **kwargs):
     logging.info('Use stochasitc policy' if not greedy else 'Use deterministic policy')
 
     termination_model_stats = BinaryClassificationStats()
-    states = [env.get_initial_state() for env in envs]
+    states = [env.reset() for env in envs]
     states = np.array(states, dtype=np.uint8)
     obs_t, task_t = preprocess_states(states, env_creator.obs_shape)
 
@@ -143,7 +143,7 @@ def fixed_episode_eval(network, env_creator, test_count, **kwargs):
     assert hasattr(env.game, 'repeat_episode'), 'the game should be able to repeat the same episode!'
     custom_conf = create_custom_config(env.game, taxi_passenger_relation, tasks)
     env.game.episode_configs = [copy.copy(custom_conf)]
-    env.get_initial_state()
+    env.reset()
     env.game.repeat_episode = repeat_episode
     if repeat_episode:
         env.game.display()
@@ -167,7 +167,7 @@ def fixed_episode_eval(network, env_creator, test_count, **kwargs):
         episode_tasks = []
 
         extra_inputs['rnn_inputs'] = network.get_initial_state(1) if is_recurrent else None
-        state = env.get_initial_state()[np.newaxis, :].astype(np.uint8)
+        state = env.reset()[np.newaxis, :].astype(np.uint8)
         if verbose:
             print('=============== Episode #{} ================='.format(i + 1))
             display()

@@ -1,15 +1,19 @@
+import argparse
+import copy
+import logging
+
+import numpy as np
+import torch
+from torch.autograd import Variable
+
 import train_multi_task as tr
 import utils
-import argparse
-import logging, copy, torch
-import numpy as np
-from torch.autograd import Variable
-from torch.nn import functional as F
-from multi_task_paac import MultiTaskPAAC, red
-from lr_scheduler import LinearAnnealingLR
+from paac import MultiTaskPAAC
+from utils.lr_scheduler import LinearAnnealingLR
+
 
 class TerminationModelRetrainer(MultiTaskPAAC):
-    EVAL_EVERY = 10240
+    eval_every = 10240
 
     def __init__(self, network_creator, env_creator, args):
         self.args = copy.copy(vars(args))
@@ -41,7 +45,7 @@ class TerminationModelRetrainer(MultiTaskPAAC):
         self.action_codes = np.eye(self.args['num_actions'])
         self.gamma = self.args['gamma']  # future rewards discount factor
         self.emulators = np.asarray(
-            [env_creator.create_environment(i) for i in range(self.args['emulator_counts'])]
+            [env_creator.create_environment(i) for i in range(self.args['num_envs'])]
         )
 
         if self.args['clip_norm_type'] == 'global':
@@ -121,7 +125,7 @@ def main(args):
 
     learner = TerminationModelRetrainer(pretrained_net_creator, env_creator, args)
 
-    tr.setup_kill_signal_handler(learner)
+    tr.concurrent_emulator_handler(learner)
 
     logging.info('Starting training')
     learner.train()
@@ -143,9 +147,9 @@ def get_arg_parser():
     parser.add_argument('-elr', '--end_lr', default=0., type=float, dest='end_lr',
                        help='During training initial_lr will be linearly annealed towards end_value')
     parser.add_argument('--max_global_steps', type=int, default=80000000)
-    parser.add_argument('-ec', '--emulator_counts', default=32, type=int,
+    parser.add_argument('-n', '--num_envs', default=32, type=int,
                         help="The amount of emulators per agent. Default is 32.")
-    parser.add_argument('-ew', '--emulator_workers', default=8, type=int, dest="emulator_workers",
+    parser.add_argument('-w', '--workers', default=8, type=int, dest="num_workers",
                         help="The amount of emulator workers per agent. Default is 8.")
     parser.add_argument('-r', '--reg_coef', default=0., type=float, dest='reg_coef',
                         help='Scalar giving L2 regularization strength')

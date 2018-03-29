@@ -41,10 +41,10 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
     )
     DEFAULT_REWARD_COEF = 1.
 
-    def __init__(self, actor_id, args, task_manager=None):
-        super(VizdoomWarehouse, self).__init__(actor_id, args)
+    def __init__(self, emulator_id, args, task_manager=None):
+        super(VizdoomWarehouse, self).__init__(emulator_id, args)
 
-        seed = (actor_id+1)*args.random_seed
+        seed = (emulator_id + 1) * args.random_seed
         self.rnd = np.random.RandomState(seed)
         self.skill = getattr(args,"skill_level", 1)
         info_file_path = ve.join_path(
@@ -214,7 +214,6 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
         is_done = self.game.is_episode_finished()
         if is_done:
             return self.terminal_obs, reward, is_done, {'task': None}
-
 
         self._update_state_info(self.game.get_state())
         reward, _ = self.task.update(reward, is_done, self._state_info)

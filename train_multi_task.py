@@ -1,17 +1,15 @@
 import argparse
 import logging
-import os
 import sys
 
 import torch
 
 import utils
 import utils.eval_multi_task as evaluate
-
 from emulators import get_taxi_emulator_cls
-from multi_task_paac import MultiTaskPAAC
 from networks import multi_task_nets, preprocess_taxi_input
-from train import args_to_str, setup_kill_signal_handler
+from paac import MultiTaskPAAC
+from train import args_to_str, concurrent_emulator_handler
 
 network_tags = list(multi_task_nets.keys())
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
@@ -71,21 +69,18 @@ def get_network_and_environment_creator(args, random_seed=None):
 def main(args):
     network_creator, env_creator = get_network_and_environment_creator(args)
     logging.info(args_to_str(args))
-    logging.info('Initializing PAAC...')
 
     learner = MultiTaskPAAC(network_creator, env_creator, args)
 
     learner.set_eval_function(
         eval_func=evaluate.stats_eval,
         args = [learner.network, env_creator],
-        kwargs = dict(test_count=50, is_recurrent=learner.use_lstm) # default termination_threshold=0.5
+        kwargs = dict(test_count=50, is_recurrent=learner.use_rnn) # default termination_threshold=0.5
     )
 
-    setup_kill_signal_handler(learner)
-
-    logging.info('Starting training')
+    concurrent_emulator_handler(learner)
     learner.train()
-    logging.info('Finished training')
+
 
 
 
@@ -123,10 +118,10 @@ def get_arg_parser():
                       dest="max_global_steps")
   parser.add_argument('--max_local_steps', default=10, type=int,
                       help="default=10. Number of steps to gain experience from before every update.", dest="max_local_steps")
-  parser.add_argument('-ec', '--emulator_counts', default=32, type=int,
-                      help="default=32. The amount of emulators per agent. Default is 32.", dest="emulator_counts")
-  parser.add_argument('-ew', '--emulator_workers', default=8, type=int,
-                      help="default=8. The amount of emulator workers per agent. Default is 8.", dest="emulator_workers")
+  parser.add_argument('-n', '--num_envs', default=32, type=int,
+                      help="default=32. The amount of emulators per agent. Default is 32.", dest="num_envs")
+  parser.add_argument('-w', '--workers', default=8, type=int,
+                      help="default=8. The amount of emulator workers per agent. Default is 8.", dest="num_workers")
   parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                       help="Folder where to save the debugging information.", dest="debugging_folder")
   parser.add_argument('--arch', choices=network_tags, default='lstm',
@@ -152,5 +147,5 @@ if __name__ == '__main__':
     args = get_arg_parser().parse_args()
 
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.debug('Saved args in the {0} folder'.format(args.debugging_folder))
+    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     main(args)

@@ -50,7 +50,6 @@ class BaseEnvironmentCreator(object):
 
         """
         if args:
-            #TODO: merge the default and specific args
             raise NotImplementedError()
         return self.env_class(env_id, self.default_args())
 

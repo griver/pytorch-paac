@@ -1,4 +1,4 @@
-from .paac_nets import torch, nn, F, Variable, np, init_model_weights
+from .paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
 
 def preprocess_taxi_input(obs, tasks_ids, Ttypes, volatile=False):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
@@ -33,8 +33,10 @@ class MultiTaskFFNetwork(nn.Module):
         self.conv1 = nn.Conv2d(C, 16, (3,3), stride=1, padding=1)
         self.conv2 = nn.Conv2d(16, 32, (3,3), stride=1, padding=1)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
+
+        C_out, H_out, W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
         #fc3 receives flattened conv network output + current task embedding
-        self.fc3 = nn.Linear(32 * H * W + self._task_embed_dim, 256)
+        self.fc3 = nn.Linear(C_out*H_out*W_out + self._task_embed_dim, 256)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
@@ -90,14 +92,15 @@ class MultiTaskLSTMNetwork(nn.Module):
         self.conv2 = nn.Conv2d(16, 32, (3,3), stride=1, padding=1)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
-        self.lstm = nn.LSTMCell(32*H*W + self._task_embed_dim, 256, bias=True)
+        C_out,H_out,W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
+
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out + self._task_embed_dim, 256, bias=True)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
 
-    def forward(self, obs, task_ids, **kwargs):
+    def forward(self, obs, task_ids, rnn_state):
         volatile = not self.training
-        rnn_inputs = kwargs['rnn_inputs']
         obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
         #obs embeds:
         x = F.relu(self.conv1(obs))
@@ -107,7 +110,7 @@ class MultiTaskLSTMNetwork(nn.Module):
         task_ids = self.embed1(task_ids)
         x = torch.cat((x, task_ids), 1)
         #lstm and last layers:
-        hx, cx = self.lstm(x, rnn_inputs)
+        hx, cx = self.lstm(x, rnn_state)
         state_value = self.fc_value(hx)
         action_logits = self.fc_policy(hx)
         terminal_logits = self.fc_terminal(hx)
@@ -137,21 +140,22 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
-        self.lstm = nn.LSTMCell(32 * H * W, 256, bias=True)
+        C_out,H_out,W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
+
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out, 256, bias=True)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2)
 
-    def forward(self, obs, task_ids, **kwargs):
+    def forward(self, obs, task_ids, rnn_state):
         volatile = not self.training
-        rnn_inputs = kwargs['rnn_inputs']
         obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         # lstm and last layers:
-        hx, cx = self.lstm(x, rnn_inputs)
+        hx, cx = self.lstm(x, rnn_state)
         state_value = self.fc_value(hx)
         action_logits = self.fc_policy(hx)
         terminal_logits = self.fc_terminal(hx)
@@ -174,9 +178,8 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         self.fc_terminal1 = nn.Linear(conv_and_embed_dim, 256)
         self.fc_terminal2 = nn.Linear(256 + self._num_actions, 2)
 
-    def forward(self, obs, task_ids, **kwargs):
+    def forward(self, obs, task_ids, rnn_state):
         volatile = not self.training
-        rnn_inputs = kwargs['rnn_inputs']
         obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
         # obs embeds:
         x = F.relu(self.conv1(obs))
@@ -186,7 +189,7 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         task_ids = self.embed1(task_ids)
         x = torch.cat((x, task_ids), 1)
         #lstm and actor-critic outputs:
-        hx, cx = self.lstm(x, rnn_inputs)
+        hx, cx = self.lstm(x, rnn_state)
         state_value = self.fc_value(hx)
         action_logits = self.fc_policy(hx)
         #termination prediction classifier:

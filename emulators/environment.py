@@ -1,8 +1,8 @@
 import numpy as np
-
+from collections import deque
 
 class BaseEnvironment(object):
-    def get_initial_state(self):
+    def reset(self):
         """
         Sets the environment to its initial state.
         :return: the initial state
@@ -19,7 +19,7 @@ class BaseEnvironment(object):
 
     def get_legal_actions(self):
         """
-        Get the set of indices of legal actions
+        Get the list of indices of legal actions
         :return: a numpy array of the indices of legal actions
         """
         raise NotImplementedError()
@@ -31,46 +31,40 @@ class BaseEnvironment(object):
         """
         raise NotImplementedError()
 
-    def on_new_frame(self, frame):
+
+    def close(self):
         """
-        Called whenever a new frame is available.
-        :param frame: raw frame
+        If any necessary cleanup is needed, do it in this method
+        :return:
         """
         pass
 
 
-class FramePool(object):
-
-    def __init__(self, frame_pool, operation):
-        self.frame_pool = frame_pool
-        self.frame_pool_index = 0
-        self.frames_in_pool = frame_pool.shape[0]
-        self.operation = operation
-
-    def new_frame(self, frame):
-        self.frame_pool[self.frame_pool_index] = frame
-        self.frame_pool_index = (self.frame_pool_index + 1) % self.frames_in_pool
-
-    def get_processed_frame(self):
-        return self.operation(self.frame_pool)
+def create_history_observation(history_window):
+    if history_window == 1:
+        return DummyObservationHistory()
+    else:
+        return ObservationHistory(history_window)
 
 
-class ObservationPool(object):
-
-    def __init__(self, observation_pool):
-        self.observation_pool = observation_pool
-        # ObservationPool stacks grayscale images along the channel dimension.
-        self.pool_size = observation_pool.shape[0] # pytorch conv layers expect images to have shape (C,H,W)
-        self.permutation = [self.__shift(list(range(self.pool_size)), i) for i in range(self.pool_size)]
-        self.current_observation_index = 0
+class ObservationHistory(object):
+    def __init__(self, history_window):
+        self.history = deque(maxlen=history_window)
 
     def new_observation(self, observation):
-        self.observation_pool[self.current_observation_index, :, :] = observation
-        self.current_observation_index = (self.current_observation_index + 1) % self.pool_size
+        """Receives an observation of shape (num_channels, height, width)"""
+        self.history.append(observation)
 
-    def get_pooled_observations(self):
-        return np.copy(self.observation_pool[self.permutation[self.current_observation_index],:,:])
+    def get_state(self):
+        return np.concatenate(self.history, axis=0)
 
-    def __shift(self, seq, n):
-        n = n % len(seq)
-        return seq[n:]+seq[:n]
+
+class DummyObservationHistory(ObservationHistory):
+    def __init__(self):
+        self.observation = None
+
+    def new_observation(self, observation):
+        self.observation = observation
+
+    def get_state(self):
+        return self.observation

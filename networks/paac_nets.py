@@ -7,16 +7,21 @@ from torch.autograd import Variable
 import numpy as np
 
 
-def preprocess_states(s, t_types, volatile=False):
+def preprocess_images(s_numpy, t_types, volatile=False):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
-    states = torch.from_numpy(np.ascontiguousarray(s ,dtype=np.float32)/255.)
-    return Variable(states, volatile=volatile).type(t_types.FloatTensor)
+    s_numpy = (np.ascontiguousarray(s_numpy, dtype=np.float32)/127.5) - 1. #[0,255] to [-1.,1.]
+    return Variable(t_types.FloatTensor(s_numpy), volatile=volatile)
+
+def old_preprocess_images(s_numpy, t_types, volatile=False):
+    # pytorch conv layers expect inputs of shape (batch, C,H,W)
+    s_numpy = np.ascontiguousarray(s_numpy, dtype=np.float32)/255. #[0,255] to [0.,1.]
+    return Variable(t_types.FloatTensor(s_numpy), volatile=volatile)
 
 
-class FFNetwork(nn.Module):
+class AtariFF(nn.Module):
     def __init__(self, num_actions, observation_shape, input_types,
-                 preprocess=preprocess_states):
-        super(FFNetwork, self).__init__()
+                 preprocess=preprocess_images):
+        super(AtariFF, self).__init__()
         self._num_actions = num_actions
         self._intypes = input_types
         self._obs_shape = observation_shape
@@ -30,16 +35,19 @@ class FFNetwork(nn.Module):
         C,H,W = self._obs_shape
         self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
         self.conv2 = nn.Conv2d(16, 32, (4,4), stride=2)
-        #if input shape equals (4, 84,84) then the conv part output shape is: (32, 9, 9)
-        #self.__flatten_conv_size = 32*9*9
-        self.fc3 = nn.Linear(32*9*9, 256)
+
+        convs = [self.conv1, self.conv2]
+        C_out, H_out, W_out = calc_output_shape((C, H, W), convs)
+
+        self.fc3 = nn.Linear(C_out*H_out*W_out, 256)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
 
-    def forward(self, inputs):
+    def forward(self, states, infos):
         volatile = not self.training
-        inputs = self._preprocess(inputs, self._intypes, volatile)
-        x = F.relu(self.conv1(inputs))
+
+        states = self._preprocess(states, self._intypes, volatile)
+        x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         x = F.relu(self.fc3(x))
@@ -51,10 +59,10 @@ class FFNetwork(nn.Module):
         return state_value, action_logits
 
 
-class LSTMNetwork(nn.Module):
+class AtariLSTM(nn.Module):
     def __init__(self, num_actions, observation_shape, input_types,
-                 preprocess=preprocess_states):
-        super(LSTMNetwork, self).__init__()
+                 preprocess=preprocess_images):
+        super(AtariLSTM, self).__init__()
         self._num_actions = num_actions
         self._obs_shape = observation_shape
         self._intypes = input_types
@@ -68,15 +76,18 @@ class LSTMNetwork(nn.Module):
         C,H,W = self._obs_shape
         self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
         self.conv2 = nn.Conv2d(16, 32, (4,4), stride=2)
-        self.lstm = nn.LSTMCell(32*9*9, 256, bias=True)
+
+        convs = [self.conv1, self.conv2]
+        C_out, H_out, W_out = calc_output_shape((C, H, W), convs)
+
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out, 256, bias=True)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
 
-    def forward(self, inputs):
+    def forward(self, states, infos, rnn_inputs):
         volatile = not self.training
-        inputs, rnn_inputs = inputs
-        inputs = self._preprocess(inputs, self._intypes, volatile)
-        x = F.relu(self.conv1(inputs))
+        states = self._preprocess(states, self._intypes, volatile)
+        x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         hx, cx = self.lstm(x, rnn_inputs)
@@ -94,7 +105,7 @@ class LSTMNetwork(nn.Module):
         return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
 
 
-class VizdoomLSTM(LSTMNetwork):
+class VizdoomLSTM(AtariLSTM):
 
     def _create_network(self):
         C, H, W = self._obs_shape
@@ -110,10 +121,9 @@ class VizdoomLSTM(LSTMNetwork):
         self.fc_policy = nn.Linear(hidden_dim, self._num_actions)
         self.fc_value = nn.Linear(hidden_dim, 1)
 
-    def forward(self, inputs):
+    def forward(self, states, infos, rnn_inputs):
         volatile = not self.training
-        inputs, rnn_inputs = inputs
-        x = self._preprocess(inputs, self._intypes, volatile)
+        x = self._preprocess(states, self._intypes, volatile)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))

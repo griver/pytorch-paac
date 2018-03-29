@@ -108,6 +108,26 @@ def global_grad_norm(parameters, norm_type=2):
     return global_norm(grads, norm_type)
 
 
+class MovingAverage(object):
+    def __init__(self, update_coef, averages_names):
+        self.avr_dict = {n:0. for n in averages_names}
+        self.update_coef = update_coef
+
+    def update(self, **new_data):
+        old_coef = 1. - self.update_coef
+        for k, val in new_data.items():
+            self.avr_dict[k] = self.update_coef*val + old_coef*self.avr_dict[k]
+
+    def __getattr__(self, item):
+        return self.avr_dict[item]
+
+    def __str__(self):
+        l = ['MovingAverage:']
+        for k, v in self.avr_dict.items():
+            l.append('{}={}'.format(k,v))
+        return ' '.join(l)
+
+
 class BinaryClassificationStats(object):
     """
     BinaryClassificationStats doesn't update its data using running average.

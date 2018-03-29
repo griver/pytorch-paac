@@ -46,7 +46,7 @@ if __name__ == '__main__':
     obs_shape = env_creator.obs_shape
     print('env num_actions:', env_creator.num_actions)
 
-    envs = [env_creator.create_environment(i) for i in xrange(args.emulator_counts)]
+    envs = [env_creator.create_environment(i) for i in xrange(args.num_envs)]
     env = envs[0]
     if args.game == 'taxi_multi_task':
         print('All possible episode configurations:')
@@ -56,7 +56,7 @@ if __name__ == '__main__':
         print('Mean number of tasks per episode:', n_tasks_mean)
 
 
-    state = env.get_initial_state()
+    state = env.reset()
     state, info = preprocess_states(state[np.newaxis,:], obs_shape)
     print('reward:', 0, 'task:', env.game.task(), end=' ')
     print('state_shape:', state.shape, 'task_id:', info)

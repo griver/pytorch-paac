@@ -7,15 +7,19 @@ import torch
 from emulators import VizdoomGamesCreator, AtariGamesCreator
 
 import utils
-from networks.paac_nets import FFNetwork, LSTMNetwork, VizdoomLSTM
+import utils.evaluate as evaluate
+from networks.paac_nets import AtariFF, AtariLSTM, VizdoomLSTM
 from paac import PAACLearner
+from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
+
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 FF_HISTORY_WINDOW=4
 LSTM_HISTORY_WINDOW=1
 ARGS_FILE='args.json'
 vz_nets = {'lstm': VizdoomLSTM}
-atari_nets = {'lstm': LSTMNetwork, 'ff':FFNetwork}
+atari_nets = {'lstm': AtariLSTM, 'ff':AtariFF}
+
 
 def args_to_str(args):
     lines = ['','ARGUMENTS:']
@@ -26,35 +30,61 @@ def args_to_str(args):
     return newline.join(lines)
 
 
+exit_handler = None
+def set_exit_handler(new_handler_func=None):
+    #for some reason a creation of Vizdoom game(which starts a new subprocess) drops all previously set singal handlers.
+    #therefore we reset handler_func right new games creation, which apparently happens only in the eval_network and main
+    global exit_handler
+    if new_handler_func is not None:
+        exit_handler = new_handler_func
+
+    if exit_handler:
+        print('set up exit handler!')
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, exit_handler)
+
+
+def concurrent_emulator_handler(batch_env):
+    logging.debug('setup signal handler!!')
+    main_process_pid = os.getpid()
+    def signal_handler(signal, frame):
+        if os.getpid() == main_process_pid:
+            logging.info('Signal ' + str(signal) + ' detected, cleaning up.')
+            batch_env.close()
+            logging.info('Cleanup completed, shutting down...')
+            sys.exit(0)
+
+    return signal_handler
+
+
+def eval_network(network, env_creator, num_episodes, is_recurrent, greedy=False):
+    emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
+    try:
+        stats = evaluate.stats_eval(network, emulator, is_recurrent=is_recurrent, greedy=greedy)
+    finally:
+        emulator.close()
+        set_exit_handler()
+
+    return stats
+
+
 def main(args):
     network_creator, env_creator = get_network_and_environment_creator(args)
 
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.debug('Saved args in the {0} folder'.format(args.debugging_folder))
-
+    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
-    logging.info('Initializing PAAC...')
 
-    learner = PAACLearner(network_creator, env_creator, args)
-    setup_kill_signal_handler(learner)
-
-    logging.info('Starting training')
-    learner.train()
-    logging.info('Finished training')
-
-
-def setup_kill_signal_handler(learner):
-    main_process_pid = os.getpid()
-
-    def signal_handler(signal, frame):
-        if os.getpid() == main_process_pid:
-            logging.info('Signal ' + str(signal) + ' detected, cleaning up.')
-            learner.cleanup()
-            logging.info('Cleanup completed, shutting down...')
-            sys.exit(0)
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    set_exit_handler(concurrent_emulator_handler(batch_env))
+    try:
+        batch_env.start_workers()
+        learner = PAACLearner(network_creator, batch_env, args)
+        learner.set_eval_function(eval_network,
+                                  learner.network, env_creator, 10, learner.use_rnn) # args to eval_network
+        learner.train()
+    finally:
+        batch_env.close()
 
 
 def get_network_and_environment_creator(args, random_seed=None):
@@ -72,17 +102,16 @@ def get_network_and_environment_creator(args, random_seed=None):
         env_creator = AtariGamesCreator(args)
         Network = atari_nets[args.arch]
 
-    args.num_actions = env_creator.num_actions
-    args.obs_shape = env_creator.obs_shape
     device = args.device
-
+    num_actions = env_creator.num_actions
+    obs_shape = env_creator.obs_shape
     def network_creator():
         if device == 'gpu':
-            network = Network(args.num_actions, args.obs_shape, torch.cuda)
+            network = Network(num_actions, obs_shape, torch.cuda)
             network = network.cuda()
             logging.debug("Moved network's computations on a GPU")
         else:
-            network = Network(args.num_actions, args.obs_shape, torch)
+            network = Network(num_actions, obs_shape, torch)
         return network
 
     return network_creator, env_creator
@@ -114,10 +143,10 @@ def add_paac_args(parser):
                         dest="max_global_steps")
     parser.add_argument('--max_local_steps', default=5, type=int,
                         help="Number of steps to gain experience from before every update.", dest="max_local_steps")
-    parser.add_argument('-ec', '--emulator_counts', default=32, type=int,
-                        help="The amount of emulators per agent. Default is 32.", dest="emulator_counts")
-    parser.add_argument('-ew', '--emulator_workers', default=8, type=int,
-                        help="The amount of emulator workers per agent. Default is 8.", dest="emulator_workers")
+    parser.add_argument('-n', '--num_envs', default=32, type=int,
+                        help="The amount of emulators per agent. Default is 32.", dest="num_envs")
+    parser.add_argument('-w', '--workers', default=8, type=int,
+                        help="The amount of emulator workers per agent. Default is 8.", dest="num_workers")
     parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                         help="Folder where to save the debugging information.", dest="debugging_folder")
     parser.add_argument('--arch', choices=['ff', 'lstm'], default='ff',
@@ -129,11 +158,12 @@ def add_paac_args(parser):
 
 
 def get_arg_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     framework_parser = parser.add_subparsers(
-        help='An RL friendly framework for agent-environment interaction', dest='framework')
+        help='An RL friendly framework for agent-environment interaction',
+        dest='framework')
 
-    vz_parser = framework_parser.add_parser('vizdoom', help="Arguments for the Vizdoom emulator")
+    vz_parser = framework_parser.add_parser('vizdoom',  help="Arguments for the Vizdoom emulator")
     VizdoomGamesCreator.add_required_args(vz_parser)
 
     atari_parser = framework_parser.add_parser('atari', help="Arguments for the atari games")

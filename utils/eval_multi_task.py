@@ -1,5 +1,5 @@
 import numpy as np
-import itertools, copy
+import itertools
 from torch.nn import functional as F
 import torch as th
 import logging, copy
@@ -65,7 +65,7 @@ def interactive_eval(network, env_creator, test_count, **kwargs):
 
         set_user_defined_episodes(env)
 
-        state = env.get_initial_state()[np.newaxis, :].astype(np.uint8)
+        state = env.reset()[np.newaxis, :].astype(np.uint8)
         display()
         print('current task:', task())
 
@@ -117,7 +117,7 @@ def visual_eval(network, env_creator, test_count, **kwargs):
 
         display = env.game.display
         task = lambda: env.game.task()
-        state = env.get_initial_state()[np.newaxis, :].astype(np.uint8)
+        state = env.reset()[np.newaxis, :].astype(np.uint8)
 
         print('map_size:', (env.game.height, env.game.width))
         display()
@@ -181,7 +181,7 @@ def stats_eval(network, env_creator, test_count, **kwargs):
     logging.info('Use stochasitc policy' if not greedy else 'Use deterministic policy')
 
     termination_model_stats = BinaryClassificationStats()
-    states = [env.get_initial_state() for env in envs]
+    states = [env.reset() for env in envs]
     states = np.array(states, dtype=np.uint8)
     obs_t, task_t = preprocess_states(states, env_creator.obs_shape)
 

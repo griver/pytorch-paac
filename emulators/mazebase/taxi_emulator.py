@@ -27,13 +27,13 @@ class TaxiEmulator(MazebaseEmulator):
         super(TaxiEmulator, self).__init__(*args, **kwargs)
 
 
-    def get_initial_state(self):
+    def reset(self):
         #There is no activity in the masebase games aside from agent's activity.
         #Therefore, performing a random start changes nothing in the games
         self.game.reset()
         state, _, _, info = self._observe()
         state = self._merge_observation_with_task_info(state, info)
-        return state
+        return state, info
 
     def _observe(self):
         # returns s, r, is_done, info
@@ -52,7 +52,7 @@ class TaxiEmulator(MazebaseEmulator):
         self.game.act(action) # no need for action repetition here
         state, reward, is_done, info = self._observe()
         state = self._merge_observation_with_task_info(state, info)
-        return state, reward, is_done
+        return state, reward, is_done, info
 
     def _merge_observation_with_task_info(self, state, info):
         return np.concatenate([state.reshape(-1), info[1:]])

@@ -26,7 +26,7 @@ class VizdoomGamesCreator(BaseEnvironmentCreator):
 
     @staticmethod
     def add_required_args(argparser):
-        argparser.add_argument('-g', default='pong', help='Name of game', dest='game')
+        argparser.add_argument('-g', default='simpler_basic', help='Name of game', dest='game')
         argparser.add_argument('-rf', '--resource_folder', default='./resources/vizdoom_scenarios',
             help='Directory with files required for the game initialization'+
                  'default=./resources/vizdoom_scenarios',
