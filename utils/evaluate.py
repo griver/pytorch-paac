@@ -54,11 +54,6 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
         episode_steps.extend(num_steps[just_ended])
         total_r[just_ended] = 0
         num_steps[just_ended] = 0
-        #if any(just_ended):
-        #    print('New env ended:', terminated)
-
-        #if t % 400 == 0:
-        #    print('step #{}'.format(t))
 
         if len(episode_rewards) >= num_episodes: break
         if not auto_reset:
@@ -74,7 +69,7 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
 def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
                num_episodes=1, verbose=0, delay=0.05):
     """
-    Runs play with the network for num_episodes episodes on a single environment.
+    Plays for num_episodes episodes on a single environment.
     Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
     Returns:
          A list that stores total reward from each episode
