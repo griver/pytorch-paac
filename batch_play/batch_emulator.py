@@ -37,7 +37,7 @@ def get_shared(array):
 
 
 def shape_and_dtype(var):
-    """returns shape of the variable and type of it elements"""
+    """returns shape of the variable and type of its elements"""
     if np.isscalar(var):
         return (), type(var)
     elif isinstance(var, (np.ndarray, tuple, list)):
@@ -58,8 +58,8 @@ class BaseBatchEmulator(object):
 
     def _create_variables(self, env_creator, extra_vars):
         """
-        Сreates numpy arrays for each variables required for interaction
-        between a learning algorithm and given emulators
+        Сreates a numpy array for each variable required for interaction
+        between a learning algorithm and the emulators
         :param extra_vars: a list of extra variables to collect from emulators aside
                           from state, reward and is_done signals.
         :return: A dict with input variables(action),
@@ -107,8 +107,8 @@ class BaseBatchEmulator(object):
 
 class ConcurrentBatchEmulator(BaseBatchEmulator):
     """
-    Использует несколько процессов(worker'ов) для того чтобы параллельно обновлять запущенные эмуляторы.
-    каждый воркер получает примерно равную долю эмуляторов и обновляет их состояние последовательно.
+    ConcurrentBatchEmulator creates <num_workers> worker processes.
+    Each worker uses an approximate equal emulators' share and sequentially updates them.
     """
     def __init__(self, worker_cls, env_creator, num_workers,
                  num_emulators, extra_vars='all'):
@@ -117,8 +117,8 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
         :param env_creator: Creates new environments
         :param num_workers: A number of concurrently working processes.
         :param num_emulators: A number of game environments that will be played simultaneously
-        :param extra_vars: A tuple of extra variables names or 'all' if you want
-                           to get all variables stored the info dicts returned by the emulators
+        :param extra_vars: A tuple of extra variables names
+                           or 'all' if you want to get all variables from the info dicts returned by the emulators.
         """
         super(ConcurrentBatchEmulator, self).__init__(env_creator, num_emulators)
         self.num_workers = num_workers
@@ -140,9 +140,8 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
     def _create_workers(self, env_creator, worker_cls):
         """
         Creates self.num_workers worker processes.
-        Each worker receives a roughly equal share of emulators and corresponding variables.
-        All Workers will run concurrently, but each of them processes given emulators
-        sequentially!
+        Each worker receives an approximate equal share of emulators and corresponding variables.
+        All Workers run concurrently but each of them updates their emulators sequentially.
         :return: A list of created workers
         """
         if self.num_emulators < self.num_workers:
@@ -176,8 +175,7 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
         Starts worker processes.
         Despite start_workers resembles the reset method from emulator classes,
         it doesn't reset emulators to new episodes.
-        Ideally start_worker should be called only once during a training stage.
-        :return: (states_batch, a dict of additional environment data batches)
+        Ideally, start_worker should be called only once before the training stage.
         """
         if self.is_closed:
             raise BatchEmulatorError('{} is already closed'.format(type(self)))
@@ -187,32 +185,31 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
                r.start()
 
     def stop_workers(self):
+        """Just use close()"""
         if self.is_closed:
             raise BatchEmulatorError('{} is already closed'.format(type(self)))
         if self.is_running and not self.is_closed:
-            #print('{} Send CLOSE:'.format(type(self).__name__))
             for queue in self.worker_queues:
                 queue.put(self._command.CLOSE)
             self.is_running = False
 
     def close(self):
+        """Stops worker processes and joins them."""
         if not self.is_closed:
             self.stop_workers()
             for worker in self.workers:
                 worker.join()
             self.is_closed = True
-            #for i, worker in enumerate(self.workers):
-            #    print("worker#{} [is_alive={}]".format(i,worker.is_alive()),flush=True)
+
 
     def next(self, action):
         """
-        Performs given actions on the corresponding emulators
-        :param action: ndarray of shape [num_emulators, num_actions]
-        :return: (state, reward, is_done, info)
+        Performs given actions on the corresponding emulators i.e. performs action[i] on emulator[i].
+        :param action:  Array of actions. if action space is discrete one-hot encoding is used.
+        :return: states, rewards, dones, infos
         """
         self.action[:] = action
         #send signals to workers to update their environments(emulators)
-        #print('{} Send NEXT: a_t={}'.format(type(self).__name__, action[0]))
         for queue in self.worker_queues:
             queue.put(self._command.NEXT)
         #wait until all emulators are updated:
@@ -231,9 +228,9 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
 
 class SequentialBatchEmulator(BaseBatchEmulator):
     """
-    SequentialBatchEmulator создает num_emulators эмуляторов и обновляет их последовательно один за другим.
-    SequentialBatchEmulator не использует многопоточность или межпроцессное взаимодействие.
-    SequentialBatchEmulator приемущественно используется для тестирования и эвалюации уже обученной сети
+    SequentialBatchEmulator creates num_emulators environments and updates them one by one.
+    It doesn't use multiprocessing.
+    SequentialBatchEmulator is mainly used for testing and evaluation of already trained network.
     """
     def __init__(self, env_creator, num_emulators,
                  auto_reset=True, extra_vars='all', init_env_id=1000):
@@ -247,6 +244,12 @@ class SequentialBatchEmulator(BaseBatchEmulator):
         self.emulators = [env_creator.create_environment(i+init_env_id) for i in range(num_emulators)]
 
     def reset_all(self):
+        """
+        Starts new episodes in all emulators.
+        :return:
+           An array of emulators' states,
+           a dict with extra variables(if there is no such variables then the dict is empty).
+        """
         for i, em in enumerate(self.emulators):
             self.state[i], info = em.reset()
             self.completed[i] = False
@@ -255,6 +258,11 @@ class SequentialBatchEmulator(BaseBatchEmulator):
         return self.state, self.info
 
     def next(self, action):
+        """
+        Sequentially performs action on each corresponding emulator, i.e. performs action[i] on emulator[i].
+        :param action: Array of actions. if action space is discrete one-hot encoding is used.
+        :return: states, rewards, dones, infos
+        """
         for i, (em, act) in enumerate(zip(self.emulators, action)):
             if not self.completed[i]:
                 new_s, self.reward[i], self.is_done[i], info = em.next(act)

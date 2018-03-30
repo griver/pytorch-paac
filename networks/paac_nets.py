@@ -5,7 +5,8 @@ import torch.nn.init as nn_init
 
 from torch.autograd import Variable
 import numpy as np
-
+import functools
+from collections import namedtuple
 
 def preprocess_images(s_numpy, t_types, volatile=False):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
@@ -104,8 +105,14 @@ class AtariLSTM(nn.Module):
         cx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
         return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
 
+atari_nets = {
+    'lstm': AtariLSTM,
+    'ff':AtariFF}
 
 class VizdoomLSTM(AtariLSTM):
+    def __init__(self, *args, **kwargs):
+        self.nonlinearity = kwargs.pop('nonlinearity', F.relu)
+        super(VizdoomLSTM, self).__init__(*args, **kwargs)
 
     def _create_network(self):
         C, H, W = self._obs_shape
@@ -124,12 +131,18 @@ class VizdoomLSTM(AtariLSTM):
     def forward(self, states, infos, rnn_inputs):
         volatile = not self.training
         x = self._preprocess(states, self._intypes, volatile)
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        nl = self.nonlinearity
+        x = nl(self.conv1(x))
+        x = nl(self.conv2(x))
+        x = nl(self.conv3(x))
         x = x.view(x.size()[0], -1)
         hx, cx = self.lstm(x, rnn_inputs)
         return self.fc_value(hx), self.fc_policy(hx), (hx,cx)
+
+vizdoom_nets = {
+    'lstm': VizdoomLSTM,
+    'selu_lstm': functools.partial(VizdoomLSTM, nonlinearity=F.selu)
+}
 
 
 def init_lstm(module, forget_bias=1.0):
@@ -189,4 +202,3 @@ def calc_output_shape(obs_dims, net_layers):
     for l in net_layers:
         x = l(x)
     return x.size()[1:]
-

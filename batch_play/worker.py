@@ -40,12 +40,16 @@ class WorkerProcess(Process):
         self._run()
 
     def _run(self):
+        """
+        Creates emulators, then in the cycle it waits for a command from an algorithm.
+        The received command is sequentially performed on each of the emulators.
+        If it gets some unknown command WorkerError is raised and the process is terminated.
+        """
         emulators = self.create_emulators()
         try:
             while True:
                 command = self.queue.get()
                 if command == self.Command.NEXT:
-                    #print('{} Receive Next: a_t={}'.format(type(self).__name__, self.action[0]))
                     for i, (emulator, action) in enumerate(zip(emulators, self.action)):
                         new_s, reward, is_done, info = emulator.next(action)
                         if is_done:
@@ -58,14 +62,12 @@ class WorkerProcess(Process):
                             self.info[k][i] = info[k]
                     self.barrier.put(True)
                 elif command == self.Command.RESET:
-                    #print('{} Receive RESET'.format(type(self).__name__))
                     for i, emulator in enumerate(emulators):
                         self.state[i], info = emulator.reset()
                         for k in self.info:
                             self.info[k][i] = info[k]
                     self.barrier.put(True)
                 elif command == self.Command.CLOSE:
-                    #print('{} Receive CLOSE'.format(type(self).__name__))
                     break
                 else:
                     raise WorkerError("{} has received unknown command {}".format(type(self),command))
