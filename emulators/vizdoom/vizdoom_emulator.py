@@ -37,33 +37,34 @@ class VizdoomEmulator(BaseEnvironment):
     SCREEN_RESOLUTION = ScreenResolution.RES_320X240
     MODE = Mode.PLAYER
 
-    def __init__(self, emulator_id, args):
-        if getattr(args, 'verbose', 0) > 2:
-            logging.debug('Initializing Vizdoom.{}. emulator_id={}'.fromat(args.game, emulator_id))
-        game = DoomGame()
-        config_file_path = join_path(args.resource_folder, args.game+'.cfg')
-        game.load_config(config_file_path)
-        visualize = getattr(args, 'visualize', False)
-        game.set_window_visible(visualize)
-        game.set_screen_resolution(self.SCREEN_RESOLUTION)#640X420
-        game.set_mode(self.MODE)
+    def __init__(self, emulator_id, game, resource_folder, gray=False, reward_coef=1/100,
+                 action_repeat=6, history_window=1, screen_size=(60,90), verbose=0, visualize=False, **unknown):
+        if verbose >= 2:
+            logging.debug('Initializing Vizdoom.{}. emulator_id={}'.format(game, emulator_id))
+            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+        doom_game = DoomGame()
+        config_file_path = join_path(resource_folder, game+'.cfg')
+        doom_game.load_config(config_file_path)
+        doom_game.set_window_visible(visualize)
+        doom_game.set_screen_resolution(self.SCREEN_RESOLUTION)
+        doom_game.set_screen_format(ScreenFormat.GRAY8 if gray else ScreenFormat.BGR24)
+        doom_game.set_mode(self.MODE)
         if self.MODE == Mode.SPECTATOR:
-            game.add_game_args("+freelook 1")
+            doom_game.add_game_args("+freelook 1")
 
         # with a fixed seed all episodes in this environment will be identical
-        #game.set_seed(args.random_seed)
-        # game.add_available_game_variable(vizdoom.GameVariable.AMMO2)
-        game.init()
-        self.game = game
+        #doom_game.set_seed(args.random_seed)
+        # doom_game.add_available_game_variable(vizdoom.GameVariable.AMMO2)
+        doom_game.init()
+        self.game = doom_game
         self.legal_actions, self.noop = self._define_actions(self.game)
-
         self._preprocess = cv2_resize
-        self.screen_size = getattr(args, 'screen_size', self.DEFAULT_SCREEN_SIZE)
-        self.reward_coef = getattr(args, 'reward_coef', self.DEFAULT_REWARD_COEF)
-        self.action_repeat = getattr(args, 'action_repeat', self.DEFAULT_ACTION_REPEAT)
+        self.screen_size = screen_size
+        self.reward_coef = reward_coef
+        self.action_repeat = action_repeat
+        self.history_window = history_window
 
-        self.history_window = args.history_window
-        num_channels = game.get_screen_channels()
+        num_channels = doom_game.get_screen_channels()
         self.observation_shape = (self.history_window*num_channels,) + self.screen_size
 
         self.history = create_history_observation(self.history_window)

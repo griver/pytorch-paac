@@ -68,7 +68,7 @@ class BaseBatchEmulator(object):
                  All dicts' values are numpy arrays.
         """
         num_em = self.num_emulators
-        example_em = env_creator.create_environment(0)
+        example_em = env_creator.create_environment(-1, visualize=False, verbose=0)
         _, info = example_em.reset()
 
         input_vars = {

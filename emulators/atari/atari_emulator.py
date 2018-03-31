@@ -5,6 +5,7 @@ from ale_python_interface import ALEInterface
 import cv2
 
 from ..environment import BaseEnvironment, create_history_observation
+import logging
 
 IMG_SIZE_X = 84
 IMG_SIZE_Y = 84
@@ -41,31 +42,35 @@ class FramePreprocessor(object):
 
 
 class AtariEmulator(BaseEnvironment):
-    def __init__(self, emulator_id, args):
+    def __init__(self, emulator_id, game, resource_folder, random_seed=3,
+                 random_start=True, single_life_episodes=False,
+                 history_window=1, visualize=False, verbose=0, **unknown):
+        if verbose >= 2:
+            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
         self.ale = ALEInterface()
-        self.ale.setInt(b"random_seed", args.random_seed * (emulator_id + 1))
+        self.ale.setInt(b"random_seed", random_seed * (emulator_id + 1))
         # For fuller control on explicit action repeat (>= ALE 0.5.0)
         self.ale.setFloat(b"repeat_action_probability", 0.0)
         # Disable frame_skip and color_averaging
         # See: http://is.gd/tYzVpj
         self.ale.setInt(b"frame_skip", 1)
         self.ale.setBool(b"color_averaging", False)
-        if args.visualize:
-            self.ale.setBool(b"display_screen", True)
-        full_rom_path = args.resource_folder + "/" + args.game + ".bin"
+        self.ale.setBool(b"display_screen", visualize)
+
+        full_rom_path = resource_folder + "/" + game + ".bin"
         self.ale.loadROM(str.encode(full_rom_path))
         self.legal_actions = self.ale.getMinimalActionSet()
         self.screen_width, self.screen_height = self.ale.getScreenDims()
         self.lives = self.ale.lives()
 
-        self.random_start = args.random_start
-        self.single_life_episodes = args.single_life_episodes
-        self.call_on_new_frame = args.visualize
-        self.history_window = args.history_window
+        self.random_start = random_start
+        self.single_life_episodes = single_life_episodes
+        self.call_on_new_frame = visualize
+        self.history_window = history_window
         self.observation_shape = (self.history_window, IMG_SIZE_X, IMG_SIZE_Y)
         self.rgb_screen = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
-        self.gray_screen = np.zeros((self.screen_height, self.screen_width,1), dtype=np.uint8)
+        self.gray_screen = np.zeros((self.screen_height, self.screen_width, 1), dtype=np.uint8)
         # Processed historcal frames that will be fed in to the network (i.e., four 84x84 images)
         self.history = create_history_observation(self.history_window)
         #ObservationPool(np.zeros(self.observation_shape, dtype=np.uint8))
