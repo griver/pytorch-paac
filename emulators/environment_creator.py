@@ -18,7 +18,7 @@ class BaseEnvironmentCreator(object):
         resource_folder = getattr(args, 'resource_folder', None)
         if args.game in self.available_games(resource_folder):
             self.env_class = self.get_environment_class()
-            self._default_args = args
+            self._default_args = vars(args)
             new_fields = self._init_default(args)
             for name, value in new_fields.items():
                 setattr(self, name, value)
@@ -32,7 +32,8 @@ class BaseEnvironmentCreator(object):
         A simple method for cases when there is no need
         in any preprocessing before creating the emulators
         """
-        test_env = self.create_environment(-1)
+        #
+        test_env = self.create_environment(-1, visualize=False, verbose=2)
         num_actions = len(test_env.legal_actions)
         obs_shape = test_env.observation_shape
         return dict(
@@ -40,18 +41,22 @@ class BaseEnvironmentCreator(object):
           obs_shape=obs_shape
         )
 
-    def create_environment(self, env_id, args=None):
+    def create_environment(self, env_id, **specific_args):
         """
         Сreates a new environment that can be used for training
         or testing an agent
-        :arg args - Args specific for this particular game instance.
+        :arg specific_args - Args specific for this particular game instance.
         All args needed for environment creation that wasn't
         specified in  the argument will be taken from self.default_args()
 
         """
-        if args:
-            raise NotImplementedError()
-        return self.env_class(env_id, self.default_args())
+        if len(specific_args):
+            for k,v in self._default_args.items():
+                if k not in specific_args:
+                    specific_args[k]=v
+            return self.env_class(env_id, **specific_args)
+        else:
+            return self.env_class(env_id, **self._default_args)
 
     def default_args(self):
-        return self._default_args
+        return dict(self._default_args)

@@ -41,16 +41,15 @@ class MazebaseEmulator(BaseEnvironment):
     def available_games():
         return MAZEBASE_GAMES
 
-    def __init__(self, emulator_id, args):
-        available_games = self.available_games()
-        assert args.game in available_games, \
-          '{0}: There is no such game in the mazebase framework'.format(args.game)
-        game_cls = available_games[args.game]
+    def __init__(self, emulator_id, game, full_view=False, verbose=0,
+                 view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE, **unknown):
+        if verbose >= 2:
+            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
 
-        full_view = args.full_view if hasattr(args, 'full_view') else False
-        # view_size is relevant only if full_view is False
-        view_size = args.view_size if hasattr(args, 'view_size') else DEFAULT_LOCAL_VIEW_SIZE
-        map_size = args.map_size if hasattr(args, 'map_size') else DEFAULT_MAP_SIZE
+        available_games = self.available_games()
+        assert game in available_games, '{0}: There is no such game in the mazebase framework'.format(game)
+        game_cls = available_games[game]
+
         if full_view:
             featurizer = GlobalViewFeaturizer(notify=True)
         else:
@@ -66,8 +65,8 @@ class MazebaseEmulator(BaseEnvironment):
         assert 'pass' in self.legal_actions, 'There should be noop action among the available actions!'
         self.noop = 'pass'
         self.id = emulator_id
-        if args.verbose > 2:
-            logging.debug('Intializing mazebase.{0} emulator_id={1}'.format(args.game, self.id))
+        if verbose > 2:
+            logging.debug('Intializing mazebase.{0} emulator_id={1}'.format(game, self.id))
             logging.warning("The games from MazeBase don't use the random_seed argument")
         # Mazebase generates random samples
         # within itself in different modules across the package; therefore,

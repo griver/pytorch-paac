@@ -26,12 +26,15 @@ class VizdoomGamesCreator(BaseEnvironmentCreator):
 
     @staticmethod
     def add_required_args(argparser):
-        argparser.add_argument('-g', default='simpler_basic', help='Name of game', dest='game')
+        show_default = " [default: %(default)s]"
+        argparser.add_argument('-g', default='simpler_basic', help='Game to play.'+show_default, dest='game')
         argparser.add_argument('-rf', '--resource_folder', default='./resources/vizdoom_scenarios',
             help='Directory with files required for the game initialization'+
-                 'default=./resources/vizdoom_scenarios',
+                 show_default,
             dest="resource_folder")
         argparser.add_argument('-v', '--visualize', action='store_true',
-                               help="Show a game window", dest="visualize")
+                               help="Show a game window." + show_default, dest="visualize")
         argparser.add_argument('-hw', '--history_window', type=int, default=1,
-                               help="Number of observations forming a state", dest='history_window')
+                               help="Number of observations forming a state"+show_default, dest='history_window')
+        argparser.add_argument('--gray', action='store_true', help='Use GRAY8 format instead of BGR24.' + show_default +
+                                '\n See: https://github.com/mwydmuch/ViZDoom/blob/master/doc/Types.md#screenformat')

@@ -41,16 +41,17 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
     )
     DEFAULT_REWARD_COEF = 1.
 
-    def __init__(self, emulator_id, args, task_manager=None):
-        super(VizdoomWarehouse, self).__init__(emulator_id, args)
+    def __init__(self, emulator_id, game, resource_folder, task_manager=None, random_seed=3,
+                 skill_level=1,  **kwargs):
+        # emulator_id, game, resource_folder, gray=False, reward_coef=1/100,
+        # action_repeat=6, history_window=1, screen_size=(60,90), verbose=0, visualize=False
+        super(VizdoomWarehouse, self).__init__(emulator_id, game,
+                                               resource_folder, **kwargs)
 
-        seed = (emulator_id + 1) * args.random_seed
-        self.rnd = np.random.RandomState(seed)
-        self.skill = getattr(args,"skill_level", 1)
-        info_file_path = ve.join_path(
-            args.resource_folder, args.game
-        )
+        info_file_path = ve.join_path(resource_folder, game)
         self._map_info = load_map_info(info_file_path)
+        self.rnd = np.random.RandomState((emulator_id + 1)*random_seed)
+        self.skill = skill_level
         self.task_manager = task_manager if task_manager else DummyManager
         self.__check_task_manager()
         self.task = None
