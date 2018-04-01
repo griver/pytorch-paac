@@ -10,7 +10,7 @@ from torch.autograd import Variable
 import utils
 from utils import red
 from collections import namedtuple
-from .paac import PAACLearner, check_log_zero
+from paac.paac import PAACLearner, check_log_zero
 
 TrainingStats = namedtuple("TrainingStats",
                                ['mean_r', 'max_r', 'min_r', 'std_r',

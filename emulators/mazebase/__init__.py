@@ -23,8 +23,8 @@ class MazebaseGamesCreator(BaseEnvironmentCreator):
         from .mazebase_emulator import MazebaseEmulator
         return MazebaseEmulator
 
-    @staticmethod
-    def add_required_args(argparser):
+    @classmethod
+    def add_required_args(cls, argparser):
       argparser.add_argument('-g', default='taxi_multi_task',
           choices=['taxi_multi_task', 'taxi_game'], help='Name of game', dest='game')
       argparser.add_argument('-m', '--map_size', nargs=4, type=int, default=[5, 5, 5, 5],

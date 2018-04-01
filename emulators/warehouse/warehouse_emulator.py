@@ -1,10 +1,12 @@
-from . import vizdoom_emulator as ve
-from vizdoom import Mode, ScreenFormat, ScreenResolution, DoomGame, Button
-import numpy as np
 import copy
 from collections import namedtuple
-from .warehouse_tasks import TaskManager, DummyManager, WarehouseTask
-from .warehouse_map_info import create_json_config, RoomData, load_map_info
+
+import numpy as np
+from vizdoom import Button
+
+from emulators.vizdoom import vizdoom_emulator as ve
+from emulators.warehouse.warehouse_map_info import load_map_info
+from emulators.warehouse.warehouse_tasks import DummyManager
 
 ComplexityParams = namedtuple(
     "ComplexityParams",
@@ -43,8 +45,6 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
 
     def __init__(self, emulator_id, game, resource_folder, task_manager=None, random_seed=3,
                  skill_level=1,  **kwargs):
-        # emulator_id, game, resource_folder, gray=False, reward_coef=1/100,
-        # action_repeat=6, history_window=1, screen_size=(60,90), verbose=0, visualize=False
         super(VizdoomWarehouse, self).__init__(emulator_id, game,
                                                resource_folder, **kwargs)
 

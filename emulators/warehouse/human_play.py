@@ -13,15 +13,19 @@
 # To see the scenario description go to "../../scenarios/README.md"
 #####################################################################
 
-from random import choice
-from vizdoom import *
-import numpy as np
-import cv2
-from emulators.vizdoom.vizdoom_multi_task import VizdoomWarehouse, create_json_config
-from emulators.vizdoom import warehouse_tasks as wh_tasks
 from argparse import Namespace
 
+import cv2
+import numpy as np
+from vizdoom import *
+
+from emulators.warehouse import warehouse_tasks as wh_tasks
+from emulators.warehouse.warehouse_emulator import VizdoomWarehouse
+
 MODE = Mode.SPECTATOR #Mode.PLAYER
+
+rnd_seed = 467#np.random.randint(500)
+print('Random seed is', rnd_seed)
 
 
 def create_actions(env):
@@ -59,20 +63,9 @@ def task2str(task):
             task.status._name_, info['items'][task.target_id])
 
 
-
 def dist(pt1, pt2):
     return np.linalg.norm(np.array(pt1) - np.array(pt2))
 
-rnd_seed = 467#np.random.randint(500)
-print('Random seed is', rnd_seed)
-args = Namespace(
-    resource_folder='resources/vizdoom_scenarios/',
-    game='warehouse',
-    skill_level = 2,
-    visualize = True,
-    history_window=1,
-    random_seed=rnd_seed,
-)
 
 def task_manager():
     return wh_tasks.TaskManager(
@@ -80,11 +73,22 @@ def task_manager():
         priorities=[2., 1.5, 1., 1.]
     )
 
-create_json_config()
+
+kwargs = dict(
+    resource_folder='resources/vizdoom_scenarios/',
+    game='warehouse',
+    skill_level = 2,
+    visualize = True,
+    history_window=1,
+    random_seed=rnd_seed,
+    task_manager=task_manager()
+)
+
+#create_json_config()
 
 VizdoomWarehouse.MODE = MODE
 VizdoomWarehouse.SCREEN_RESOLUTION = ScreenResolution.RES_640X480
-env = VizdoomWarehouse(0, args, task_manager=task_manager())
+env = VizdoomWarehouse(0, **kwargs)
 actions = create_actions(env)
 #env.game.set_labels_buffer_enabled(True)
 

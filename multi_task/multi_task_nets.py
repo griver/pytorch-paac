@@ -1,4 +1,4 @@
-from .paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
+from networks.paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
 
 def preprocess_taxi_input(obs, tasks_ids, Ttypes, volatile=False):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
@@ -68,7 +68,6 @@ class MultiTaskFFNetwork(nn.Module):
         for name, param, in self.named_parameters():
             if 'terminal' not in name:
                 yield param
-
 
 
 class MultiTaskLSTMNetwork(nn.Module):

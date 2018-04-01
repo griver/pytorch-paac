@@ -23,8 +23,8 @@ class AtariGamesCreator(BaseEnvironmentCreator):
         from .atari_emulator import AtariEmulator
         return AtariEmulator
 
-    @staticmethod
-    def add_required_args(argparser):
+    @classmethod
+    def add_required_args(cls, argparser):
         argparser.add_argument('-g', default='pong', help='Name of game', dest='game')
         argparser.add_argument('-rf', '--resource_folder', default='./resources/atari_roms',
             help='Directory with files required for the game initialization' +

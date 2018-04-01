@@ -1,7 +1,7 @@
 
 class BaseEnvironmentCreator(object):
-    @staticmethod
-    def add_required_args(argparser):
+    @classmethod
+    def add_required_args(cls, argparser):
         '''Adds arguments required to create new environments'''
         raise NotImplementedError()
 

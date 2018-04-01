@@ -1,12 +1,11 @@
-import emulators.vizdoom.vizdoom_emulator as ve
-from emulators.vizdoom.vizdoom_multi_task import VizdoomWarehouse, create_json_config
-from emulators.vizdoom import warehouse_tasks as wh_tasks
-import time
-import itertools
-import numpy as np
 from argparse import Namespace
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import animation
+
+from emulators.warehouse import warehouse_tasks as wh_tasks
+from emulators.warehouse.warehouse_emulator import VizdoomWarehouse, create_json_config
 
 args = Namespace(
     num_emulators=1,

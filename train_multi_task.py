@@ -6,9 +6,8 @@ import torch
 
 import utils
 import utils.eval_multi_task as evaluate
-from emulators import get_taxi_emulator_cls
-from networks import multi_task_nets, preprocess_taxi_input
-from paac import MultiTaskPAAC
+from emulators import TaxiGamesCreator
+from multi_task import multi_task_nets, preprocess_taxi_input, MultiTaskPAAC
 from train import args_to_str, concurrent_emulator_handler
 
 network_tags = list(multi_task_nets.keys())
@@ -145,7 +144,6 @@ def get_arg_parser():
 if __name__ == '__main__':
     #args_line = '-lr 0.0075 --e 0.033 -d cpu -ew 4 -ec 32 -f -df logs_taxi --max_global_steps 200000 --max_local_steps 10 --arch lstm'
     args = get_arg_parser().parse_args()
-
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
     logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     main(args)

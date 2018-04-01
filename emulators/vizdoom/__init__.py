@@ -24,8 +24,8 @@ class VizdoomGamesCreator(BaseEnvironmentCreator):
         from .vizdoom_emulator import VizdoomEmulator
         return VizdoomEmulator
 
-    @staticmethod
-    def add_required_args(argparser):
+    @classmethod
+    def add_required_args(cls, argparser):
         show_default = " [default: %(default)s]"
         argparser.add_argument('-g', default='simpler_basic', help='Game to play.'+show_default, dest='game')
         argparser.add_argument('-rf', '--resource_folder', default='./resources/vizdoom_scenarios',
