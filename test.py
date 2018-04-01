@@ -54,7 +54,7 @@ if __name__=='__main__':
     parser.add_argument('-d', '--device', default='gpu', type=str, choices=['gpu', 'cpu'],
         help="Device to be used ('cpu' or 'gpu'). Use CUDA_VISIBLE_DEVICES to specify a particular gpu", dest="device")
     parser.add_argument('-v', '--visualize', action='store_true')
-    parser.add_argument('--new_preprocessing', action='store_true',
+    parser.add_argument('--old_preprocessing', action='store_true',
                         help="""Previous image preprocessing squashed values in a [0, 255] int range to a [0.,1.] float range.
                                 The new one returns an image with values in a [-1.,1.] float range.""")
 
@@ -67,20 +67,20 @@ if __name__=='__main__':
     )
     net_creator, env_creator = get_network_and_environment_creator(args)
     network, steps_trained = load_trained_network(net_creator, checkpoint_path)
-    if not args.new_preprocessing:
+    if args.old_preprocessing:
         network._preprocess = old_preprocess_images
-    use_lstm = (args.arch == 'lstm')
+    use_rnn = hasattr(network, 'get_initial_state')
 
     print_dict(vars(args), 'ARGS')
     print('Model was trained for {} steps'.format(steps_trained))
     if args.visualize:
         num_steps, rewards = evaluate.visual_eval(
             network, env_creator, args.greedy,
-            use_lstm, args.test_count, verbose=1, delay=args.step_delay)
+            use_rnn, args.test_count, verbose=1, delay=args.step_delay)
     else:
         num_steps, rewards = eval_network(
             network, env_creator, args.test_count,
-            use_lstm, greedy=args.greedy)
+            use_rnn, greedy=args.greedy)
 
     print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
     print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))

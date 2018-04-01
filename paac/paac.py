@@ -58,7 +58,7 @@ class PAACLearner(object):
         #In most cases it’s better to use CUDA_VISIBLE_DEVICES environmental variable
         #Therefore to specify a particular gpu one should use CUDA_VISIBLE_DEVICES.
         self.use_cuda = self.args['device'] == 'gpu'
-        self.use_rnn = ('ff' not in self.args['arch']) #not a feedforward
+        self.use_rnn = hasattr(self.network, 'get_initial_state') #get_initial_state should return state of the rnn layers
         self._tensors = torch.cuda if self.use_cuda else torch
 
         self.action_codes = np.eye(batch_env.num_actions) #envs reveive actions in one-hot encoding!
