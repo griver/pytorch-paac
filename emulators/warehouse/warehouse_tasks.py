@@ -18,12 +18,14 @@ class WarehouseTask(object):
     goal_reward = 1.
     duration = float('inf')
     required_state_vars = set()
+    task_id = 0
 
-    def __init__(self, duration=None):
+    def __init__(self, duration=None, info_dict=None):
         self.n_steps = 0
         self.status = TaskStatus.RUNNING
         if duration:
             self.duration = duration
+        self._info_dict = info_dict
 
     @classmethod
     def is_available(Class, state_info):
@@ -47,9 +49,13 @@ class WarehouseTask(object):
             self.status.name
         )
 
+    def as_info_dict(self):
+        """A multi task environment should return it's current task in the form of info dict
+        from next(action) and reset()"""
+        return self._info_dict
 
 class DummyTask(WarehouseTask):
-
+    task_id = 0
     @classmethod
     def is_available(Class, state_info):
         return True
@@ -64,16 +70,20 @@ class DummyTask(WarehouseTask):
         return base_reward, self.status
 
 
+
 class PickUp(WarehouseTask):
     """
     The goal is to pickup an item of specified type.
     """
     required_state_vars = {'room_id', 'item_count', 'item_id'}
+    task_id = 1
 
     def __init__(self, target_item_id, room_id, duration=None):
-        super(PickUp, self).__init__(duration=duration)
+        info_dict = {'task_id':self.task_id, 'property':target_item_id}
+        super(PickUp, self).__init__(duration=duration, info_dict=info_dict)
         self.target_id = target_item_id
         self.room_id = room_id
+
 
     @classmethod
     def is_available(Class, state_info):
@@ -117,12 +127,15 @@ class PickUp(WarehouseTask):
 
 
 class Drop(WarehouseTask):
+    task_id = 2
     items_limit = 5
     required_state_vars = {'room_id', 'item_id', 'item_count'}
 
     def __init__(self, start_room_id, duration=None):
+        info_dict = {'task_id': self.task_id, 'property':-1}
         self.start_room_id = start_room_id
-        super(Drop, self).__init__(duration=duration)
+        super(Drop, self).__init__(duration=duration, info_dict=info_dict)
+
 
     @classmethod
     def is_available(Class, state_info):
@@ -166,6 +179,7 @@ class Visit(WarehouseTask):
     Visit specified room without picking up any item along the way
     """
     required_state_vars = {'room_id', 'rooms', 'item_id'}
+    task_id = 3
 
     @classmethod
     def is_available(Class, state_info):
@@ -186,10 +200,20 @@ class Visit(WarehouseTask):
         rooms = [r for r_id, r in state_info.rooms.items()
                  if r.texture != curr_texture]
         target_room = random.choice(rooms)
-        return Class(target_room.id, texture=target_room.texture)
+        # All tasks has some meaningful property:
+        # the movement tasks has room_texture_id(integers in the range [0,num_textures))
+        # while manipulation tasks specify an item type (integers in the range [0,num_item_types)),
+        # but later at the algorithm side we want to distinguish a texture with id=k with an item with type=k,
+        # without knowing the nature of the property.
+        # Therefore we just shift the texture ids by the n_items to the left with property_offset
+        # Yes, this is a cheap hack.
+        n_items = len(state_info.item_count)
+        return Class(target_room.id, target_room.texture,
+                     property_offset=n_items)
 
-    def __init__(self, target_id, texture, duration=None):
-        super(Visit, self).__init__(duration=duration)
+    def __init__(self, target_id, texture, duration=None, property_offset=0):
+        info = {'task_id':self.task_id, 'property': texture+property_offset}
+        super(Visit, self).__init__(duration=duration, info_dict=info)
         self.target_id = target_id
         self.property = texture
 
@@ -222,6 +246,7 @@ class CarryItem(WarehouseTask):
     Carry a picked up item to the specified room without dropping it
     """
     required_state_vars = {'room_id', 'rooms', 'item_id'}
+    task_id = 4
 
     @classmethod
     def is_available(Class, state_info):
@@ -245,10 +270,14 @@ class CarryItem(WarehouseTask):
             if r.texture != curr_texture
         ]
         target_room = random.choice(rooms)
-        return Class(target_room.id, target_room.texture, state_info.item_id)
+        n_items = len(state_info.item_count) #see Visit.create comment
+        return Class(target_room.id, target_room.texture,
+                     state_info.item_id, property_offset=n_items)
 
-    def __init__(self, target_room, texture, carried_item_id, duration=None):
-        super(CarryItem, self).__init__(duration=duration)
+    def __init__(self, target_room, texture, carried_item_id,
+                 duration=None, property_offset=0):
+        info = {'task_id': self.task_id, 'property':texture+property_offset}
+        super(CarryItem, self).__init__(duration=duration, info_dict=info)
         self.target_id = target_room
         self.property = texture
         self.carried_item_id = carried_item_id

@@ -161,7 +161,7 @@ def add_paac_args(parser, framework):
     parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                         help="Folder where to save training progress.", dest="debugging_folder")
     parser.add_argument('--arch', choices=net_choices, help="Which network architecture to train"+show_default,
-                        dest="arch")
+                        dest="arch", required=True)
     parser.add_argument('--loss_scale', default=1., dest='loss_scaling', type=float,
                         help='Scales loss according to a given value'+show_default )
     parser.add_argument('--critic_coef', default=0.25, dest='critic_coef', type=float,

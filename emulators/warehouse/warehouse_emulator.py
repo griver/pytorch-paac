@@ -85,12 +85,12 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
 
         return legal_actions, noop
 
-    def get_initial_state(self):
+    def reset(self):
         self._init_episode()
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
         self.task = self.task_manager.next(self._state_info, self.rnd)
-        return self._state_info.obs, {'task', self.task}
+        return self._state_info.obs, self.task.as_info_dict()
 
     def _init_episode(self):
         self.game.new_episode()
@@ -151,7 +151,7 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
         return {r.id:r for r in rooms}
 
     def _update_room_textures(self, selected_rooms):
-        entry_room_id = self._map_info['entry_room']
+        entry_room_id = self._map_info['entry_room'].id
         entry_texture_id = self._map_info['default_texture_id']
         textures = [(t_id,name) for t_id, name in self._map_info['textures']
                     if t_id != entry_texture_id]
@@ -223,7 +223,7 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
-        return self._state_info.obs, reward, is_done, {'task':self.task}
+        return self._state_info.obs, reward, is_done, self.task.as_info_dict()
 
     def watch_next(self):
         reward = 0.
@@ -245,5 +245,5 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
-        return self._state_info.obs, reward, is_done, {'task':self.task}
+        return self._state_info.obs, reward, is_done,  self.task.as_info_dict()
 

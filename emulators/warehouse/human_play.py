@@ -102,7 +102,7 @@ for i in range(episodes):
     print("Episode #" + str(i + 1))
 
     # Not needed for the first episode but the loop is nicer.
-    obs, info = env.get_initial_state()
+    obs, info = env.reset()
     is_done = False
     prev_task = None
     while not is_done:
@@ -112,13 +112,13 @@ for i in range(episodes):
         st_info = env._state_info
         room_id = st_info.room_id
         items = st_info.item_count
-        task = info['task']
+        task = env.task
 
         if prev_task and prev_task != task:
             print('\r#{}: {}, last_reward={}'.format(
                 len(env._completed), task2str(prev_task),r))
 
-        print('\rtask={} room_id={}, num_items={} '.format(task2str(task),room_id, items),
+        print('\rtask={} room_id={}, num_items={} info={}'.format(task2str(task),room_id, items, info),
             end='', flush=True)
         prev_task = task
 
