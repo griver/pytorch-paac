@@ -12,6 +12,7 @@ NUMPY_TO_C_DTYPE = {
     np.float64: c_double,
     np.uint8: c_uint,
     np.int32: c_int32,
+    np.int64: c_int32,
     int: c_int32,
     bool: c_bool,
 }
@@ -129,7 +130,7 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
             setattr(self, k, get_shared(array))
         for k, array in outputs.items(): # default outputs: state, reward, is_done
             setattr(self, k, get_shared(array))
-        self.info = {k:get_shared(array) for k, array in extra_outputs}
+        self.info = {k:get_shared(array) for k, array in extra_outputs.items()}
 
         self.worker_queues = [Queue() for _ in range(num_workers)]
         self.barrier = Queue()
@@ -161,7 +162,7 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
                 'action': self.action[l:r], 'state': self.state[l:r],
                 'is_done': self.is_done[l:r],'reward': self.reward[l:r],
             }
-            worker_extra_vars = {k:v[l:r] for k, v in self.info}
+            worker_extra_vars = {k:v[l:r] for k, v in self.info.items()}
             create_ems = lambda l=l,r=r: [env_creator.create_environment(i) for i in range(l,r)]
 
             workers[wid] = worker_cls(
@@ -238,7 +239,7 @@ class SequentialBatchEmulator(BaseBatchEmulator):
         inputs, outputs, extra_outputs = self._create_variables(env_creator, extra_vars)
         for k, var in inputs.items(): setattr(self, k, var)
         for k, var in outputs.items(): setattr(self, k, var)
-        self.info = {k:var for k,var in extra_outputs}
+        self.info = {k:var for k,var in extra_outputs.items()}
         self.auto_reset = auto_reset
         self.completed = [False]*num_emulators
         self.emulators = [env_creator.create_environment(i+init_env_id) for i in range(num_emulators)]
