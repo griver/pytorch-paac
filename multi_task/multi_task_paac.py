@@ -19,29 +19,20 @@ TrainingStats = namedtuple("TrainingStats",
 
 class MultiTaskPAAC(PAACLearner):
 
-
-    def __init__(self, network_creator, env_creator, args):
-        super(MultiTaskPAAC, self).__init__(network_creator, env_creator, args)
-        self._preprocess_states = lambda states: env_creator.preprocess_states(states, env_creator.obs_shape)
-        self.env_creator = env_creator
-
+    def __init__(self, network_creator, batch_env, args):
+        super(MultiTaskPAAC, self).__init__(network_creator, batch_env, args)
         self._term_model_coef = args.termination_model_coef
         logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
         self._term_model_loss = nn.NLLLoss(weight=torch.FloatTensor(args.term_weights))
         if self.use_cuda:
             self._term_model_loss = self._term_model_loss.cuda()
-        if hasattr(args, 'eval_every'):
-            self.eval_every = args.eval_every
-        self.eval_func = None
 
     def train(self):
         """
          Main actor learner loop for parallerl advantage actor critic learning.
          """
         logging.info('Starting training at step %d' % self.global_step)
-        logging.debug('Tensor types. Model: {}, Loop: {}'.format(
-            self._tensors.FloatTensor, self._tensors.FloatTensor
-        ))
+        logging.debug('use_cuda == {}'.format(self.use_cuda))
 
         counter = 0
         global_step_start = self.global_step
@@ -187,27 +178,21 @@ class MultiTaskPAAC(PAACLearner):
         else:
             return acts_one_hot, values, selected_log_probs, entropy, log_done,
 
-    def predict_values(self, *inputs, **extra_inputs):
-        if self.use_rnn:
-            values = self.network(*inputs, **extra_inputs)[0]
-        else:
-            values = self.network(*inputs)[0]
-        return values
-
     def evaluate(self, verbose=True):
-        prev_mode = self.network.training
-        self.network.eval() # no need to save additional information needed for training
-        num_steps, rewards, term_stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
-        self.network.train(prev_mode)
+        num_steps, rewards, *term_stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
 
         mean_steps = np.mean(num_steps)
         min_r, max_r = np.min(rewards), np.max(rewards)
         mean_r, std_r = np.mean(rewards), np.std(rewards)
-        acc = term_stats.accuracy
-        rec = term_stats.recall
-        prec = term_stats.precision
-        targets_ratio = term_stats.targets_ratio
-        preds_ratio = term_stats.predictions_ratio
+        if term_stats:
+            term_stats = term_stats[0]
+            acc = term_stats.accuracy
+            rec = term_stats.recall
+            prec = term_stats.precision
+            targets_ratio = term_stats.targets_ratio
+            preds_ratio = term_stats.predictions_ratio
+        else:
+            term_stats=acc=rec=prec=targets_ratio=preds_ratio=0.
 
         stats = TrainingStats(
             mean_r=mean_r, min_r=min_r, max_r=max_r, std_r=std_r,

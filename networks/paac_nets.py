@@ -13,6 +13,7 @@ def preprocess_images(s_numpy, t_types, volatile=False):
     s_numpy = (np.ascontiguousarray(s_numpy, dtype=np.float32)/127.5) - 1. #[0,255] to [-1.,1.]
     return Variable(t_types.FloatTensor(s_numpy), volatile=volatile)
 
+
 def old_preprocess_images(s_numpy, t_types, volatile=False):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
     s_numpy = np.ascontiguousarray(s_numpy, dtype=np.float32)/255. #[0,255] to [0.,1.]
@@ -105,9 +106,11 @@ class AtariLSTM(nn.Module):
         cx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
         return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
 
+
 atari_nets = {
     'lstm': AtariLSTM,
     'ff':AtariFF}
+
 
 class VizdoomLSTM(AtariLSTM):
     def __init__(self, *args, **kwargs):
@@ -138,6 +141,7 @@ class VizdoomLSTM(AtariLSTM):
         x = x.view(x.size()[0], -1)
         hx, cx = self.lstm(x, rnn_inputs)
         return self.fc_value(hx), self.fc_policy(hx), (hx,cx)
+
 
 vizdoom_nets = {
     'lstm': VizdoomLSTM,

@@ -7,11 +7,6 @@ def preprocess_taxi_input(obs, tasks_ids, Ttypes, volatile=False):
     return obs, tasks_ids
 
 
-class TaskTerminationPredictor(nn.Module):
-    #TODO: Create base class or a mixin for both following networks
-    pass
-
-
 class MultiTaskFFNetwork(nn.Module):
 
     def __init__(self, num_actions, observation_shape, input_types,
@@ -41,9 +36,10 @@ class MultiTaskFFNetwork(nn.Module):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
 
-    def forward(self, obs, task_ids):
+    def forward(self, obs, infos):
         volatile = not self.training
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        task_ids = infos['task_id']
+        obs, task_ids = self._preprocess(obs, infos, self._intypes, volatile)
         #conv
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -98,8 +94,9 @@ class MultiTaskLSTMNetwork(nn.Module):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
 
-    def forward(self, obs, task_ids, rnn_state):
+    def forward(self, obs, infos, rnn_state):
         volatile = not self.training
+        task_ids = infos['task_id']
         obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
         #obs embeds:
         x = F.relu(self.conv1(obs))
@@ -146,8 +143,9 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2)
 
-    def forward(self, obs, task_ids, rnn_state):
+    def forward(self, obs, infos, rnn_state):
         volatile = not self.training
+        task_ids = infos['task_id']
         obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
         # obs embeds:
         x = F.relu(self.conv1(obs))

@@ -94,10 +94,10 @@ def get_network_and_environment_creator(args, random_seed=None):
     if (not hasattr(args, 'random_seed')) or (random_seed is not None):
         args.random_seed = 3
     if args.framework == 'vizdoom':
-        env_creator = VizdoomGamesCreator(args)
+        env_creator = VizdoomGamesCreator(**vars(args))
         Network = vizdoom_nets[args.arch]
     elif args.framework == 'atari':
-        env_creator = AtariGamesCreator(args)
+        env_creator = AtariGamesCreator(**vars(args))
         Network = atari_nets[args.arch]
 
     device = args.device

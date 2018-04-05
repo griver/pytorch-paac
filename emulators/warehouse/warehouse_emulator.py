@@ -17,7 +17,7 @@ ComplexityParams = namedtuple(
     ])
 
 
-class VizdoomWarehouse(ve.VizdoomEmulator):
+class WarehouseEmulator(ve.VizdoomEmulator):
 
     class StateInfo(object):
         __slots__ = ['obs', 'room_id', 'item_id', 'rooms',
@@ -41,18 +41,18 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
         ComplexityParams(n_rooms=(3, 4), room_dist=2, items_limit=11),#4
         ComplexityParams(n_rooms=(4, 5), room_dist=2, items_limit=13),#5
     )
-    DEFAULT_REWARD_COEF = 1.
 
     def __init__(self, emulator_id, game, resource_folder, task_manager=None, random_seed=3,
                  skill_level=1,  **kwargs):
-        super(VizdoomWarehouse, self).__init__(emulator_id, game,
-                                               resource_folder, **kwargs)
+        kwargs.setdefault('reward_coef', 1.)
+        super(WarehouseEmulator, self).__init__(emulator_id, game,
+                                                resource_folder, **kwargs)
 
         info_file_path = ve.join_path(resource_folder, game)
         self._map_info = load_map_info(info_file_path)
         self.rnd = np.random.RandomState((emulator_id + 1)*random_seed)
         self.skill = skill_level
-        self.task_manager = task_manager if task_manager else DummyManager
+        self.task_manager = task_manager if task_manager else DummyManager()
         self.__check_task_manager()
         self.task = None
 
@@ -168,8 +168,7 @@ class VizdoomWarehouse(ve.VizdoomEmulator):
         aX, aY, item_id, room_id, = doom_vars[:4]
         self._num_items, self._can_spawn = doom_vars[4:6]
         obs = self._preprocess(doom_state.screen_buffer, self.screen_size)
-        #pytorch wants image shape to be (C,H,W):
-        self._state_info.obs = obs.transpose(2,0,1)
+        self._state_info.obs = obs
         self._state_info.room_id = room_id
         self._state_info.item_id = item_id
         self._state_info.agent_pos = (aX,aY)

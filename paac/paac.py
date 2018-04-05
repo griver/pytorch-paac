@@ -61,7 +61,7 @@ class PAACLearner(object):
         self.use_rnn = hasattr(self.network, 'get_initial_state') #get_initial_state should return state of the rnn layers
         self._tensors = torch.cuda if self.use_cuda else torch
 
-        self.action_codes = np.eye(batch_env.num_actions) #envs reveive actions in one-hot encoding!
+        self.action_codes = np.eye(batch_env.num_actions) #emulators receive actions in one-hot encoding!
         self.gamma = self.args['gamma'] # future rewards discount factor
         self.entropy_coef = self.args['entropy_regularisation_strength']
         self.loss_scaling = self.args['loss_scaling'] #5.

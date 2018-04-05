@@ -20,7 +20,7 @@ import numpy as np
 from vizdoom import *
 
 from emulators.warehouse import warehouse_tasks as wh_tasks
-from emulators.warehouse.warehouse_emulator import VizdoomWarehouse
+from emulators.warehouse.warehouse_emulator import WarehouseEmulator
 
 MODE = Mode.SPECTATOR #Mode.PLAYER
 
@@ -67,11 +67,11 @@ def dist(pt1, pt2):
     return np.linalg.norm(np.array(pt1) - np.array(pt2))
 
 
-def task_manager():
-    return wh_tasks.TaskManager(
+def task_manager(random=True):
+    TManager = wh_tasks.TaskManager if random else wh_tasks.AskHumanManager
+    return TManager(
         [wh_tasks.PickUp, wh_tasks.Drop, wh_tasks.Visit, wh_tasks.CarryItem],
-        priorities=[2., 1.5, 1., 1.]
-    )
+        priorities=[2., 1.5, 1., 1.])
 
 
 kwargs = dict(
@@ -86,9 +86,9 @@ kwargs = dict(
 
 #create_json_config()
 
-VizdoomWarehouse.MODE = MODE
-VizdoomWarehouse.SCREEN_RESOLUTION = ScreenResolution.RES_640X480
-env = VizdoomWarehouse(0, **kwargs)
+WarehouseEmulator.MODE = MODE
+WarehouseEmulator.SCREEN_RESOLUTION = ScreenResolution.RES_640X480
+env = WarehouseEmulator(0, **kwargs)
 actions = create_actions(env)
 #env.game.set_labels_buffer_enabled(True)
 

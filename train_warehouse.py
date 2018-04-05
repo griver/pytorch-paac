@@ -4,11 +4,11 @@ import os
 import signal
 import sys
 import torch
-from emulators import WarehouseGameCreator
+from emulators.warehouse import WarehouseGameCreator, warehouse_tasks as tasks
 
 import utils
 import utils.evaluate as evaluate
-
+from networks import vizdoom_nets
 from multi_task import MultiTaskPAAC, network_dict
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
@@ -53,56 +53,35 @@ def concurrent_emulator_handler(batch_env):
     return signal_handler
 
 
-def eval_network(network, env_creator, num_episodes, is_recurrent, greedy=False):
-    emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
-    try:
-        stats = evaluate.stats_eval(network, emulator, is_recurrent=is_recurrent, greedy=greedy)
-    finally:
-        emulator.close()
-        set_exit_handler()
-
-    return stats
-
-
 def main(args):
     network_creator, env_creator = get_network_and_environment_creator(args)
-
-    utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    #batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
-        batch_env.start_workers()
-        learner = PAACLearner(network_creator, batch_env, args)
-        learner.set_eval_function(eval_network,
-                                  learner.network, env_creator, 10, learner.use_rnn) # args to eval_network
+        #batch_env.start_workers()
+        learner = MultiTaskPAAC(network_creator, batch_env, args)
+        #learner.set_eval_function(eval_network, learner.network, env_creator, 10, learner.use_rnn)
         learner.train()
     finally:
         batch_env.close()
 
 
 def get_network_and_environment_creator(args, random_seed=None):
-    if args.arch == 'lstm':
-        args.history_window = LSTM_HISTORY_WINDOW
-    elif args.arch == 'ff':
-        args.history_window = FF_HISTORY_WINDOW
+    task_manager =  tasks.TaskManager(
+        [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
+        priorities=[1.5, 2., 1., 1.]
+    )
+    env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))
 
-    if (not hasattr(args, 'random_seed')) or (random_seed is not None):
-        args.random_seed = 3
-    if args.framework == 'vizdoom':
-        env_creator = VizdoomGamesCreator(args)
-        Network = vizdoom_nets[args.arch]
-    elif args.framework == 'atari':
-        env_creator = AtariGamesCreator(args)
-        Network = atari_nets[args.arch]
-
-    device = args.device
     num_actions = env_creator.num_actions
     obs_shape = env_creator.obs_shape
+    Network = vizdoom_nets[args.arch]
+
     def network_creator():
-        if device == 'gpu':
+        if args.device == 'gpu':
             network = Network(num_actions, obs_shape, torch.cuda)
             network = network.cuda()
             logging.debug("Moved network's computations on a GPU")
@@ -116,18 +95,20 @@ def get_network_and_environment_creator(args, random_seed=None):
 def add_multi_task_learner_args(parser):
     devices =['gpu', 'cpu'] if torch.cuda.is_available() else ['cpu']
     default_device = devices[0]
-    nets = network_dict
+    nets = vizdoom_nets
     net_choices = list(nets.keys())
     default_workers = min(8, multiprocessing.cpu_count())
     show_default = " [default: %(default)s]"
 
+    parser.add_argument('--arch', choices=net_choices, help="Which network architecture to train" + show_default,
+                        dest="arch", required=True)
     parser.add_argument('-d', '--device', default=default_device, type=str, choices=devices,
                         help="Device to be used ('cpu' or 'gpu'). " +
                          "Use CUDA_VISIBLE_DEVICES to specify a particular gpu" + show_default,
                         dest="device")
-    parser.add_argument('--e', default=1e-8, type=float,
+    parser.add_argument('--e', default=0.025, type=float,
                         help="Epsilon for the Rmsprop and Adam optimizers."+show_default, dest="e")
-    parser.add_argument('-lr', '--initial_lr', default=1e-3, type=float,
+    parser.add_argument('-lr', '--initial_lr', default=5e-3, type=float,
                         help="Initial value for the learning rate."+show_default, dest="initial_lr",)
     parser.add_argument('-lra', '--lr_annealing_steps', default=80000000, type=int,
                         help="Nr. of global steps during which the learning rate will be linearly" +
@@ -158,18 +139,16 @@ def add_multi_task_learner_args(parser):
                         dest="num_workers")
     parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                         help="Folder where to save training progress.", dest="debugging_folder")
-    parser.add_argument('--arch', choices=net_choices, help="Which network architecture to train"+show_default,
-                        dest="arch")
-    parser.add_argument('--loss_scale', default=1., dest='loss_scaling', type=float,
+    parser.add_argument('--loss_scale', default=5., dest='loss_scaling', type=float,
                         help='Scales loss according to a given value'+show_default )
     parser.add_argument('--critic_coef', default=0.25, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
-                        help='default=1. Weight of the termination model loss in the total loss')
-    parser.add_argument('--eval_every', default=102400, type=int, dest='eval_every',
-                        help='default=102400. Model evaluation frequency.')
+                        help='Weight of the termination model loss in the total loss.'+show_default)
+    parser.add_argument('--eval_every', default=None, type=int, dest='eval_every',
+                        help='Model evaluation frequency.'+show_default)
     parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
-                        help='default=[0.4, 1.6]. Class weights for the termination classifier loss.')
+                        help='Class weights for the termination classifier loss.'+show_default)
 
 
 def get_arg_parser():
@@ -182,4 +161,6 @@ def get_arg_parser():
 
 if __name__ == '__main__':
     args = get_arg_parser().parse_args()
+    utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
+    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     main(args)

@@ -355,3 +355,18 @@ class DummyManager(TaskManager):
     def __init__(self, *args, **kwargs):
         super(DummyManager, self).__init__([DummyTask], *args, **kwargs)
 
+
+class AskHumanManager(TaskManager):
+    """Asks(via console) a user to specify a type of the task that will be created"""
+    def next(self, state_info, rnd_state):
+        is_available = [t.is_available(state_info) for t in self._task_types]
+        task_types = self._task_types[is_available]
+        options = [t.__name__.lower() for t in task_types]
+        answer = None
+        while answer not in options:
+            answer = input('Choose one of the following tasks: {}'.format(options))
+            if answer.lower() not in options:
+                print("Can't recognize the task. Please, try again.")
+        id = options.index(answer)
+        task = task_types[id].create(rnd_state, state_info)
+        return task

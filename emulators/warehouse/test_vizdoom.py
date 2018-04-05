@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib import animation
 
 from emulators.warehouse import warehouse_tasks as wh_tasks
-from emulators.warehouse.warehouse_emulator import VizdoomWarehouse, create_json_config
+from emulators.warehouse.warehouse_emulator import WarehouseEmulator, create_json_config
 
 args = Namespace(
     num_emulators=1,
@@ -30,7 +30,7 @@ def task_manager():
 create_json_config()
 print('Arguments:', args)
 
-emulators = [VizdoomWarehouse(i, args, task_manager()) for i in range(args.num_emulators)]
+emulators = [WarehouseEmulator(i, args, task_manager()) for i in range(args.num_emulators)]
 #emulators = [ve.VizdoomEmulator(i, args) for i in range(args.num_emulators)]
 
 buttons = np.array(emulators[0].game.get_available_buttons())

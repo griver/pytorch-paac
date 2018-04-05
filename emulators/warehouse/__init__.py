@@ -1,10 +1,10 @@
 from ..environment_creator import BaseEnvironmentCreator
-from ..vizdoom import VizdoomGamesCreator
+from ..warehouse import warehouse_tasks as tasks
 
 class WarehouseGameCreator(BaseEnvironmentCreator):
 
     @staticmethod
-    def available_games(resource_folder, required_files=('cfg','json','wad')):
+    def available_games(resource_folder, required_files=('.cfg','.json','.wad')):
         if resource_folder is None:
             return ()
 
@@ -29,8 +29,8 @@ class WarehouseGameCreator(BaseEnvironmentCreator):
 
     @staticmethod
     def get_environment_class():
-        from .warehouse_emulator import VizdoomWarehouse
-        return VizdoomWarehouse
+        from .warehouse_emulator import WarehouseEmulator
+        return WarehouseEmulator
 
     @classmethod
     def add_required_args(cls, argparser):
@@ -45,5 +45,3 @@ class WarehouseGameCreator(BaseEnvironmentCreator):
         argparser.add_argument('-rs', default=29,  help='Random Seed.' + show_default)
         argparser.add_argument('-v', '--visualize', action='store_true',
                                help="Show a game window." + show_default, dest="visualize")
-
-

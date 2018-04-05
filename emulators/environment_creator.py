@@ -14,20 +14,21 @@ class BaseEnvironmentCreator(object):
     def get_environment_class():
       raise NotImplementedError()
 
-    def __init__(self, args):
-        resource_folder = getattr(args, 'resource_folder', None)
-        if args.game in self.available_games(resource_folder):
+    def __init__(self, **default_emulator_args):
+        resource_folder = default_emulator_args.get('resource_folder', None)
+        game_name = default_emulator_args['game']
+        if game_name in self.available_games(resource_folder):
             self.env_class = self.get_environment_class()
-            self._default_args = vars(args)
-            new_fields = self._init_default(args)
+            self._default_args = default_emulator_args
+            new_fields = self._init_default()
             for name, value in new_fields.items():
                 setattr(self, name, value)
         else:
             raise ValueError(
-                "{0} Can't find {0} game".format(self.__class__, args.game)
+                "{0} Can't find {0} game".format(self.__class__, game_name)
             )
 
-    def _init_default(self, args):
+    def _init_default(self):
         """
         A simple method for cases when there is no need
         in any preprocessing before creating the emulators
