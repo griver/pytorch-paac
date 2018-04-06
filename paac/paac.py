@@ -66,6 +66,7 @@ class PAACLearner(object):
         self.entropy_coef = self.args['entropy_regularisation_strength']
         self.loss_scaling = self.args['loss_scaling'] #5.
         self.critic_coef = self.args['critic_coef'] #0.25
+        self.adjust_rewards = lambda r:np.clip(r, -1., 1.)
         self.eval_func = None
 
         if self.args['clip_norm_type'] == 'global':
@@ -125,7 +126,7 @@ class PAACLearner(object):
                 states, rs, dones, infos = self.batch_env.next(a_t)
 
                 #actions_sum += a_t
-                rewards.append(np.clip(rs, -1., 1.))
+                rewards.append(self.adjust_rewards(rs))
                 entropies.append(entropy_t)
                 log_probs.append(log_probs_t)
                 values.append(v_t)
@@ -142,7 +143,7 @@ class PAACLearner(object):
                 if self.use_rnn and any(done_mask): # we need to clear all lstm states corresponding to the terminated emulators
                         done_idx = is_done.nonzero().view(-1)
                         hx, cx = hx.clone(), cx.clone() #hx_t, cx_t are used for backward op, so we can't modify them in-place
-                        hx[done_idx,:] = hx_init[done_idx, :].detach()
+                        hx[done_idx,:] = hx_init[done_idx,:].detach()
                         cx[done_idx,:] = cx_init[done_idx,:].detach()
 
             self.global_step += rollout_steps
