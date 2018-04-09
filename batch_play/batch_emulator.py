@@ -234,7 +234,8 @@ class SequentialBatchEmulator(BaseBatchEmulator):
     SequentialBatchEmulator is mainly used for testing and evaluation of already trained network.
     """
     def __init__(self, env_creator, num_emulators,
-                 auto_reset=True, extra_vars='all', init_env_id=1000):
+                 auto_reset=True, extra_vars='all', init_env_id=1000,
+                 specific_emulator_args=None):
         super(SequentialBatchEmulator, self).__init__(env_creator, num_emulators)
         inputs, outputs, extra_outputs = self._create_variables(env_creator, extra_vars)
         for k, var in inputs.items(): setattr(self, k, var)
@@ -242,7 +243,8 @@ class SequentialBatchEmulator(BaseBatchEmulator):
         self.info = {k:var for k,var in extra_outputs.items()}
         self.auto_reset = auto_reset
         self.completed = [False]*num_emulators
-        self.emulators = [env_creator.create_environment(i+init_env_id) for i in range(num_emulators)]
+        em_args = specific_emulator_args if specific_emulator_args else {}
+        self.emulators = [env_creator.create_environment(i+init_env_id,**em_args) for i in range(num_emulators)]
 
     def reset_all(self):
         """

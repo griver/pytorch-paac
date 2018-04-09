@@ -4,9 +4,9 @@ import itertools as it
 
 
 class TaskStatus(Enum):
-    FAIL = -1,
-    RUNNING = 0,
+    RUNNING = 0
     SUCCESS = 1
+    FAIL = 2
 
 
 class WarehouseTask(object):
@@ -131,8 +131,8 @@ class Drop(WarehouseTask):
     items_limit = 5
     required_state_vars = {'room_id', 'item_id', 'item_count'}
 
-    def __init__(self, start_room_id, duration=None):
-        info_dict = {'task_id': self.task_id, 'property':-1}
+    def __init__(self, start_room_id, item_id, duration=None):
+        info_dict = {'task_id': self.task_id, 'property':item_id}
         self.start_room_id = start_room_id
         super(Drop, self).__init__(duration=duration, info_dict=info_dict)
 
@@ -149,8 +149,9 @@ class Drop(WarehouseTask):
 
     @classmethod
     def create(Class, random, state_info):
+        item_id = state_info.item_id
         room_id = state_info.room_id
-        return Class(start_room_id=room_id)
+        return Class(start_room_id=room_id, item_id=item_id)
 
     def update(self, base_reward, is_done, state_info):
         self.n_steps += 1

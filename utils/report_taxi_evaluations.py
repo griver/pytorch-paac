@@ -2,7 +2,7 @@ import copy, logging, itertools
 import numpy as np
 import torch as th
 from .utils import  BinaryClassificationStats
-from .eval_multi_task import choose_action, set_user_defined_episodes
+from .eval_taxi import choose_action, set_user_defined_episodes
 
 
 def create_custom_config(game_cls, taxi_passenger_relation, task_seq):

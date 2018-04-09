@@ -7,8 +7,8 @@ import torch
 import torch.nn.functional as F
 
 import utils
-from utils import eval_multi_task as eval
-from utils import report_evaluations as report_eval
+from utils import eval_taxi as eval
+from utils import report_taxi_evaluations as report_eval
 import train_multi_task as train
 
 

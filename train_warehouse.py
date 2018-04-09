@@ -1,29 +1,21 @@
 import argparse
 import logging
-import os
 import signal
 import sys
 import torch
 from emulators.warehouse import WarehouseGameCreator, warehouse_tasks as tasks
 
 import utils
-import utils.evaluate as evaluate
-from networks import vizdoom_nets
-from multi_task import MultiTaskPAAC, network_dict
+from utils import eval_warehouse as evaluate
+from networks import warehouse_nets
+
+from multi_task import MultiTaskPAAC
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
-
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-ARGS_FILE='args.json'
+ARGS_FILE='args_multi_task.json'
 
-
-def args_to_str(args):
-    lines = ['','ARGUMENTS:']
-    newline = os.linesep
-    args = vars(args)
-    for key in sorted(args.keys()):
-        lines.append('    "{0}": {1}'.format(key, args[key]))
-    return newline.join(lines)
+from train import args_to_str, concurrent_emulator_handler
 
 
 exit_handler = None
@@ -40,17 +32,16 @@ def set_exit_handler(new_handler_func=None):
             signal.signal(sig, exit_handler)
 
 
-def concurrent_emulator_handler(batch_env):
-    logging.debug('setup signal handler!!')
-    main_process_pid = os.getpid()
-    def signal_handler(signal, frame):
-        if os.getpid() == main_process_pid:
-            logging.info('Signal ' + str(signal) + ' detected, cleaning up.')
-            batch_env.close()
-            logging.info('Cleanup completed, shutting down...')
-            sys.exit(0)
+def eval_network(network, env_creator, num_episodes, greedy=False, **emulator_args):
+    emulator = SequentialBatchEmulator(env_creator, num_episodes, False,
+                                       specific_emulator_args=emulator_args)
+    try:
+        stats = evaluate.stats_eval(network, emulator, greedy=greedy)
+    finally:
+        emulator.close()
+        set_exit_handler()
 
-    return signal_handler
+    return stats
 
 
 def main(args):
@@ -63,7 +54,8 @@ def main(args):
     try:
         #batch_env.start_workers()
         learner = MultiTaskPAAC(network_creator, batch_env, args)
-        #learner.set_eval_function(eval_network, learner.network, env_creator, 10, learner.use_rnn)
+        learner.set_eval_function(eval_network, learner.network,
+                                  env_creator, 2, visualize=True)
         learner.train()
     finally:
         batch_env.close()
@@ -74,19 +66,20 @@ def get_network_and_environment_creator(args, random_seed=None):
         [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
         priorities=[1.5, 2., 1., 1.]
     )
+
     env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))
 
     num_actions = env_creator.num_actions
     obs_shape = env_creator.obs_shape
-    Network = vizdoom_nets[args.arch]
+    Network = warehouse_nets[args.arch]
 
     def network_creator():
         if args.device == 'gpu':
-            network = Network(num_actions, obs_shape, torch.cuda)
+            network = Network(num_actions, obs_shape, torch.cuda, num_tasks=4+1,)#num_tasks+NoTask
             network = network.cuda()
             logging.debug("Moved network's computations on a GPU")
         else:
-            network = Network(num_actions, obs_shape, torch)
+            network = Network(num_actions, obs_shape, torch, num_tasks=4+1) #num_tasks+NoTask
         return network
 
     return network_creator, env_creator
@@ -95,7 +88,7 @@ def get_network_and_environment_creator(args, random_seed=None):
 def add_multi_task_learner_args(parser):
     devices =['gpu', 'cpu'] if torch.cuda.is_available() else ['cpu']
     default_device = devices[0]
-    nets = vizdoom_nets
+    nets = warehouse_nets
     net_choices = list(nets.keys())
     default_workers = min(8, multiprocessing.cpu_count())
     show_default = " [default: %(default)s]"

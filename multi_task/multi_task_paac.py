@@ -42,12 +42,12 @@ class MultiTaskPAAC(PAACLearner):
         if self.eval_func is not None:
             stats = self.evaluate(verbose=True)
             training_stats.append((self.global_step, stats))
+            curr_mean_r = best_mean_r = stats.mean_r
 
 
         num_emulators = self.args['num_envs']
         max_local_steps = self.args['max_local_steps']
         max_global_steps = self.args['max_global_steps']
-        rollout_steps = num_emulators * max_local_steps
         clip_norm = self.args['clip_norm']
         rollout_steps = num_emulators * max_local_steps
 
@@ -73,11 +73,11 @@ class MultiTaskPAAC(PAACLearner):
                 #don't know but probably we need only task values at step t+1
                 # i.e thr values needed for prediction)
                 # and not the values used as input...
-                tasks[t] = infos['task_id']
+                tasks[t] = infos['task_status']
                 outputs = self.choose_action(states, infos, (hx, cx))
                 a_t, v_t, log_probs_t, entropy_t, log_term_t, (hx, cx) = outputs
                 states, rs, dones, infos = self.batch_env.next(a_t)
-
+                #print('=======================')
                 log_terminals.append(log_term_t)
                 rewards.append(self.adjust_rewards(rs))
                 entropies.append(entropy_t)
@@ -99,12 +99,9 @@ class MultiTaskPAAC(PAACLearner):
                     hx[done_idx, :] = hx_init[done_idx,:].detach()
                     cx[done_idx, :] = cx_init[done_idx,:].detach()
 
+            tasks[max_local_steps] = infos['task_status']
             self.global_step += rollout_steps
-            rnn_inputs = (hx, cx) if self.use_rnn else None
-            next_s, next_task = self._preprocess_states(states)
-            tasks[max_local_steps] = next_task
-            next_v = self.predict_values(next_s, next_task, rnn_inputs=rnn_inputs)
-
+            next_v = self.predict_values(states, infos, (hx,cx))
             R = next_v.detach().view(-1)
 
             delta_v = []
@@ -122,7 +119,7 @@ class MultiTaskPAAC(PAACLearner):
             )
 
             term_loss = self.compute_termination_model_loss(log_terminals, tasks)
-            if self._term_model_coef > 0. and self.global_step >= self.args['warmup']:
+            if self._term_model_coef > 0.:# and self.global_step >= self.args['warmup']:
                 loss += self._term_model_coef * term_loss
 
             self.lr_scheduler.adjust_learning_rate(self.global_step)
@@ -146,20 +143,24 @@ class MultiTaskPAAC(PAACLearner):
                 if (self.eval_func is not None):
                     stats = self.evaluate(verbose=True)
                     training_stats.append((self.global_step, stats))
+                    curr_mean_r = stats.mean_r
 
             if self.global_step - self.last_saving_step >= self.save_every:
-                self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=False)
+                if curr_mean_r > best_mean_r:
+                    best_mean_r = curr_mean_r
+                    is_best=True
+                self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=is_best)
                 training_stats = []
                 self.last_saving_step = self.global_step
 
         self._save_progress(self.checkpoint_dir, is_best=False)
         logging.info('Training ended at step %d' % self.global_step)
 
-    def choose_action(self, *net_inputs):
+    def choose_action(self, states, infos, rnn_states):
         if self.use_rnn:
-            values, a_logits, done_logits, lstm_state = self.network(*net_inputs)
+            values, a_logits, done_logits, rnn_states = self.network(states, infos, rnn_states)
         else:
-            values, a_logits, done_logits = self.network(*net_inputs)
+            values, a_logits, done_logits = self.network(states, infos)
 
         log_done = F.log_softmax(done_logits, dim=1)
         probs = F.softmax(a_logits, dim=1)
@@ -170,10 +171,7 @@ class MultiTaskPAAC(PAACLearner):
 
         check_log_zero(log_probs.data)
         acts_one_hot = self.action_codes[acts.data.cpu().view(-1).numpy(), :]
-        if self.use_rnn:
-            return acts_one_hot, values, selected_log_probs, entropy, log_done, lstm_state
-        else:
-            return acts_one_hot, values, selected_log_probs, entropy, log_done,
+        return acts_one_hot, values, selected_log_probs, entropy, log_done, rnn_states
 
     def evaluate(self, verbose=True):
         num_steps, rewards, *term_stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
@@ -210,7 +208,8 @@ class MultiTaskPAAC(PAACLearner):
         return stats
 
     def compute_termination_model_loss(self, log_terminals, tasks):
-        tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
+        #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
+        tasks_done = (tasks[1:] != 0).astype(np.int32)
         tasks_done = torch.from_numpy(tasks_done).type(self._tensors.LongTensor)
         tasks_done = Variable(tasks_done.view(-1))
         log_terminals = torch.cat(log_terminals, 0) #.type(self._tensors.FloatTensor)

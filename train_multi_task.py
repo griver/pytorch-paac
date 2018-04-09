@@ -5,12 +5,12 @@ import sys
 import torch
 
 import utils
-import utils.eval_multi_task as evaluate
-from emulators import TaxiGamesCreator
-from multi_task import multi_task_nets, preprocess_taxi_input, MultiTaskPAAC
+import utils.eval_taxi as evaluate
+from multi_task import preprocess_taxi_input, MultiTaskPAAC
+from networks import taxi_nets
 from train import args_to_str, concurrent_emulator_handler
 
-network_tags = list(multi_task_nets.keys())
+network_tags = list(taxi_nets.keys())
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE = 'args_multi_task.json'
 VIEW_SIZE = (5,5)
@@ -45,7 +45,7 @@ def get_network_and_environment_creator(args, random_seed=None):
     args.num_actions = env_creator.num_actions
 
     device = args.device
-    Network = multi_task_nets[args.arch]
+    Network = taxi_nets[args.arch]
 
     def network_creator():
         if device == 'gpu':

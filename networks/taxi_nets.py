@@ -1,4 +1,4 @@
-from networks.paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
+from .default_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
 
 def preprocess_taxi_input(obs, tasks_ids, Ttypes, volatile=False):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
@@ -197,9 +197,9 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         return state_value, action_logits, termination_logits, (hx, cx)
 
 
-network_dict = {
-    'lstm': MultiTaskLSTMNetwork,
-    'lstm_new': MultiTaskLSTMNew,
-    'lstm_paac': TaxiLSTMNetwork,
-    'ff': MultiTaskFFNetwork,
+taxi_nets = {
+    'mt_lstm': MultiTaskLSTMNetwork,
+    'mt_lstm_new': MultiTaskLSTMNew,
+    'lstm': TaxiLSTMNetwork,
+    'mt_ff': MultiTaskFFNetwork,
 }

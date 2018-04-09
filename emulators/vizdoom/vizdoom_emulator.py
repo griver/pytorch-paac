@@ -72,6 +72,7 @@ class VizdoomEmulator(BaseEnvironment):
         #  returns the initial state of a new episode.
         # Therefore it doesn't really matter that terminal_screen is None
         self.terminal_obs = None
+        self._id = emulator_id
 
     def _define_actions(self, initialized_game):
         n_buttons = initialized_game.get_available_buttons_size()

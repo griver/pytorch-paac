@@ -3,10 +3,11 @@ from collections import namedtuple
 
 import numpy as np
 from vizdoom import Button
-
-from emulators.vizdoom import vizdoom_emulator as ve
-from emulators.warehouse.warehouse_map_info import load_map_info
-from emulators.warehouse.warehouse_tasks import DummyManager
+from copy import deepcopy
+from ..vizdoom import vizdoom_emulator as ve
+from .warehouse_map_info import load_map_info
+from .warehouse_tasks import DummyManager
+import emulators.warehouse.warehouse_tasks as wh_tasks
 
 ComplexityParams = namedtuple(
     "ComplexityParams",
@@ -15,6 +16,24 @@ ComplexityParams = namedtuple(
         "items_limit", #maximum number of items that can be spawned
         "room_dist", #1 or 2. How far a target room can be from the entry room
     ])
+
+def task2str(env, task):
+    info = env._map_info
+    if isinstance(task, wh_tasks.Visit):
+        if task.target_id == info['entry_room'].id:
+            return '[{}] Visit Entry room!'.format(task.status._name_)
+        return '[{}] Visit room with {}'.format(
+            task.status._name_, info['textures'][task.property][1])
+    elif isinstance(task, wh_tasks.CarryItem):
+        if task.target_id == info['entry_room'].id:
+            return '[{}] Bring the item in the entry room!'.format(task.status._name_)
+        return '[{}] Bring the item in the room with {}'.format(
+            task.status._name_, info['textures'][task.property][1])
+    elif isinstance(task, wh_tasks.Drop):
+        return "[{}] Drop the carried item!".format(task.status._name_)
+    elif isinstance(task, wh_tasks.PickUp):
+        return "[{}] Pick up a {}".format(
+            task.status._name_, info['items'][task.target_id])
 
 
 class WarehouseEmulator(ve.VizdoomEmulator):
@@ -50,9 +69,10 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         info_file_path = ve.join_path(resource_folder, game)
         self._map_info = load_map_info(info_file_path)
-        self.rnd = np.random.RandomState((emulator_id + 1)*random_seed)
+        random_seed = (emulator_id + 1) * random_seed
+        self.rnd = np.random.RandomState(random_seed)
         self.skill = skill_level
-        self.task_manager = task_manager if task_manager else DummyManager()
+        self.task_manager = deepcopy(task_manager) if task_manager else DummyManager()
         self.__check_task_manager()
         self.task = None
 
@@ -90,7 +110,9 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
         self.task = self.task_manager.next(self._state_info, self.rnd)
-        return self._state_info.obs, self.task.as_info_dict()
+        info = {'task_status':self.task.status.value}
+        info.update(self.task.as_info_dict())
+        return self._state_info.obs, info
 
     def _init_episode(self):
         self.game.new_episode()
@@ -213,16 +235,21 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         is_done = self.game.is_episode_finished()
         if is_done:
-            return self.terminal_obs, reward, is_done, {'task': None}
+            completed = [str(t) for t in self._completed] + [str(self.task)]
+            print('Emulator #{} completed_tasks: {}'.format(self._id, completed),flush=True)
+            return self.terminal_obs, reward, is_done, {'task_status:':-1, 'task_id':-1, 'property':-1}
 
         self._update_state_info(self.game.get_state())
-        reward, _ = self.task.update(reward, is_done, self._state_info)
-        reward = reward * self.reward_coef
         if self.task.finished():
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
-        return self._state_info.obs, reward, is_done, self.task.as_info_dict()
+        reward, _ = self.task.update(reward, is_done, self._state_info)
+        reward = reward * self.reward_coef
+        info = {'task_status': self.task.status.value}
+        info.update(self.task.as_info_dict())
+        print('emulator#{} r={}, task={}, info={}'.format(self._id, reward, self.task, info))
+        return self._state_info.obs, reward, is_done, info
 
     def watch_next(self):
         reward = 0.
@@ -234,15 +261,18 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         is_done = self.game.is_episode_finished()
         if is_done:
             next_obs = self.terminal_obs
-            return next_obs, reward, is_done, {'task':None}
+            return next_obs, reward, is_done, {}
 
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
         reward, _ = self.task.update(reward, is_done, self._state_info)
         reward = reward * self.reward_coef
+        info = {'task_status':self.task.status.value}
+        info.update(self.task.as_info_dict())
+
         if self.task.finished():
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
-        return self._state_info.obs, reward, is_done,  self.task.as_info_dict()
+        return self._state_info.obs, reward, is_done, info
 
