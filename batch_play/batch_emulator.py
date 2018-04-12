@@ -271,7 +271,7 @@ class SequentialBatchEmulator(BaseBatchEmulator):
                     new_s, info = em.reset()
                 elif self.is_done[i] and not self.auto_reset:
                     new_s = 0
-                    for k in self.info: self.info[k] = 0
+                    #for k in info: info[k] = 0
                     self.completed[i] = True
 
                 self.state[i] = new_s
