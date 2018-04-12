@@ -80,7 +80,7 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
          A list that stores total reward from each episode
          A list that stores length of each episode
     """
-    print('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
+    logging.info('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
     episode_rewards = []
     episode_steps = []
     action_codes = np.eye(env_creator.num_actions)

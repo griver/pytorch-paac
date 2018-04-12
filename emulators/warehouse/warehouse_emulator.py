@@ -227,17 +227,15 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         Performs the given action.
         Returns the next state, reward, and terminal signal
         """
-        reward = 0.
-        if not self.game.is_episode_finished():
-            self._spawn_item_if_needed()
-            action = self.legal_actions[np.argmax(action)]
-            reward = self.game.make_action(action, self.action_repeat)
-
+        self._spawn_item_if_needed()
+        action = self.legal_actions[np.argmax(action)]
+        reward = self.game.make_action(action, self.action_repeat)
         is_done = self.game.is_episode_finished()
+
         if is_done:
             completed = [str(t) for t in self._completed] + [str(self.task)]
-            print('Emulator #{} completed_tasks: {}'.format(self._id, completed),flush=True)
-            return self.terminal_obs, reward, is_done, {'task_status:':-1, 'task_id':-1, 'property':-1}
+            print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
+            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':-1, 'property':-1}
 
         self._update_state_info(self.game.get_state())
         if self.task.finished():
@@ -248,7 +246,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         reward = reward * self.reward_coef
         info = {'task_status': self.task.status.value}
         info.update(self.task.as_info_dict())
-        print('emulator#{} r={}, task={}, info={}'.format(self._id, reward, self.task, info))
+        #print('emulator#{} r={}, task={}, info={}'.format(self._id, reward, self.task, info))
         return self._state_info.obs, reward, is_done, info
 
     def watch_next(self):
