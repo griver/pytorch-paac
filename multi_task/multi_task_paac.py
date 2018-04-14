@@ -201,7 +201,7 @@ class MultiTaskPAAC(PAACLearner):
                 'Mean number of steps: {0:.3f}'.format(mean_steps),
                 'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
                 'Termination Predictor:',
-                'Acc: {:.2f}% | Precision: {:.2f} | Recall: {:.2f}'.format(acc, prec, rec),
+                'Acc: {:.2f}% | Precision: {:.2f}% | Recall: {:.2f}'.format(acc, prec, rec),
                 'Class 1 ratio. Targets: {0:.2f}% Preds: {1:.2f}%'.format(targets_ratio, preds_ratio)]
             logging.info(red('\n'.join(lines)))
 

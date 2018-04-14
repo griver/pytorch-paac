@@ -78,8 +78,9 @@ class PickUp(WarehouseTask):
     required_state_vars = {'room_id', 'item_count', 'item_id'}
     task_id = 1
 
-    def __init__(self, target_item_id, room_id, duration=None):
-        info_dict = {'task_id':self.task_id, 'property':target_item_id}
+    def __init__(self, target_item_id, room_id, duration=None, property_offset=1):
+        info_dict = {'task_id':self.task_id,
+                     'property':target_item_id+property_offset}
         super(PickUp, self).__init__(duration=duration, info_dict=info_dict)
         self.target_id = target_item_id
         self.room_id = room_id
@@ -97,7 +98,7 @@ class PickUp(WarehouseTask):
         room_id = state_info.room_id
         item_types = [i for i,n in enumerate(state_info.item_count) if n > 0]
         item = random.choice(item_types)
-        return Class(target_item_id=item, room_id=room_id)
+        return Class(target_item_id=item, room_id=room_id, property_offset=1) # offset of 1 accounts for the NoProperty entry.
 
     def update(self, base_reward, is_done, state_info):
         self.n_steps += 1
@@ -131,8 +132,8 @@ class Drop(WarehouseTask):
     items_limit = 5
     required_state_vars = {'room_id', 'item_id', 'item_count'}
 
-    def __init__(self, start_room_id, item_id, duration=None):
-        info_dict = {'task_id': self.task_id, 'property':item_id}
+    def __init__(self, start_room_id, item_id, duration=None, property_offset=1):
+        info_dict = {'task_id': self.task_id, 'property':item_id+property_offset}
         self.start_room_id = start_room_id
         super(Drop, self).__init__(duration=duration, info_dict=info_dict)
 
@@ -151,7 +152,7 @@ class Drop(WarehouseTask):
     def create(Class, random, state_info):
         item_id = state_info.item_id
         room_id = state_info.room_id
-        return Class(start_room_id=room_id, item_id=item_id)
+        return Class(start_room_id=room_id, item_id=item_id, property_offset=1) #offset of 1 accounts the NoProperty entry
 
     def update(self, base_reward, is_done, state_info):
         self.n_steps += 1
@@ -206,9 +207,9 @@ class Visit(WarehouseTask):
         # while manipulation tasks specify an item type (integers in the range [0,num_item_types)),
         # but later at the algorithm side we want to distinguish a texture with id=k with an item with type=k,
         # without knowing the nature of the property.
-        # Therefore we just shift the texture ids by the n_items to the left with property_offset
+        # Therefore we just shift the texture ids by the n_items + one no_property to the left with property_offset
         # Yes, this is a cheap hack.
-        n_items = len(state_info.item_count)
+        n_items = len(state_info.item_count)+1
         return Class(target_room.id, target_room.texture,
                      property_offset=n_items)
 
@@ -271,7 +272,7 @@ class CarryItem(WarehouseTask):
             if r.texture != curr_texture
         ]
         target_room = random.choice(rooms)
-        n_items = len(state_info.item_count) #see Visit.create comment
+        n_items = len(state_info.item_count) + 1 #see Visit.create comment
         return Class(target_room.id, target_room.texture,
                      state_info.item_id, property_offset=n_items)
 

@@ -231,11 +231,10 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         action = self.legal_actions[np.argmax(action)]
         reward = self.game.make_action(action, self.action_repeat)
         is_done = self.game.is_episode_finished()
-
-        if is_done:
-            completed = [str(t) for t in self._completed] + [str(self.task)]
-            print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
-            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':-1, 'property':-1}
+        if is_done: #task_id 0 is a NoTask. Zero value for property has the same meaning.
+            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':0, 'property':0}
+            #completed = [str(t) for t in self._completed] + [str(self.task)]
+            #print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
 
         self._update_state_info(self.game.get_state())
         if self.task.finished():

@@ -37,7 +37,7 @@ def set_exit_handler(new_handler_func=None):
         exit_handler = new_handler_func
 
     if exit_handler:
-        print('set up exit handler!')
+        #print('set up exit handler!')
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, exit_handler)
 

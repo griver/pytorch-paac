@@ -15,25 +15,11 @@ import multiprocessing
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE='args_multi_task.json'
 
-from train import args_to_str, concurrent_emulator_handler
-
-
-exit_handler = None
-def set_exit_handler(new_handler_func=None):
-    #for some reason a creation of Vizdoom game(which starts a new subprocess) drops all previously set singal handlers.
-    #therefore we reset handler_func right new games creation, which apparently happens only in the eval_network and main
-    global exit_handler
-    if new_handler_func is not None:
-        exit_handler = new_handler_func
-
-    if exit_handler:
-        print('set up exit handler!')
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            signal.signal(sig, exit_handler)
+from train import args_to_str, concurrent_emulator_handler, set_exit_handler
 
 
 def eval_network(network, env_creator, num_episodes, greedy=False, **emulator_args):
-    emulator = SequentialBatchEmulator(env_creator, num_episodes, False,
+    emulator = SequentialBatchEmulator(env_creator, num_episodes, auto_reset=False,
                                        specific_emulator_args=emulator_args)
     try:
         stats = evaluate.stats_eval(network, emulator, greedy=greedy)
@@ -48,14 +34,13 @@ def main(args):
     network_creator, env_creator = get_network_and_environment_creator(args)
     logging.info(args_to_str(args))
 
-    #batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
-    batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    #batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
-        #batch_env.start_workers()
+        batch_env.start_workers()
         learner = MultiTaskPAAC(network_creator, batch_env, args)
-        learner.set_eval_function(eval_network, learner.network,
-                                  env_creator, 2, visualize=True)
+        learner.set_eval_function(eval_network, learner.network, env_creator, 10)
         learner.train()
     finally:
         batch_env.close()
@@ -64,7 +49,7 @@ def main(args):
 def get_network_and_environment_creator(args, random_seed=None):
     task_manager =  tasks.TaskManager(
         [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
-        priorities=[1.5, 2., 1., 1.]
+        priorities=[1.2, 1.5, 1., 1.]
     )
 
     env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))
@@ -75,11 +60,13 @@ def get_network_and_environment_creator(args, random_seed=None):
 
     def network_creator():
         if args.device == 'gpu':
-            network = Network(num_actions, obs_shape, torch.cuda, num_tasks=4+1,)#num_tasks+NoTask
+            network = Network(num_actions, obs_shape, torch.cuda,
+                              num_tasks=4+1, num_properties=4+8+1)#num_tasks+NoTask
             network = network.cuda()
             logging.debug("Moved network's computations on a GPU")
         else:
-            network = Network(num_actions, obs_shape, torch, num_tasks=4+1) #num_tasks+NoTask
+            network = Network(num_actions, obs_shape, torch,
+                              num_tasks=4+1, num_properties=4+8+1) #4items+8textures+NoProperty
         return network
 
     return network_creator, env_creator

@@ -4,10 +4,10 @@ import numpy as np
 import itertools
 import torch as th
 
-def _to_numpy(torch_varialbe, flatten=False):
+def _to_numpy(torch_variable, flatten=False):
     if flatten:
-        torch_variable = torch_varialbe.view(-1)
-    return torch_varialbe.data.cpu().numpy()
+        torch_variable = torch_variable.view(-1)
+    return torch_variable.data.cpu().numpy()
 
 
 def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_prediction_rule=None):
@@ -76,19 +76,6 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     return episode_steps, episode_rewards, termination_model_stats
 
 
-@model_evaluation
-def visual_eval(network, env_creator, greedy=False,
-                num_episodes=1, verbos=0, delay=0.05):
-    """
-        Runs play with the network for num_episodes episodes on a single environment.
-        Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
-        Returns:
-             A list that stores total reward from each episode
-             A list that stores length of each episode
-    """
-    pass
-
-
 def choose_action(network, states, infos, **kwargs):
     rnn_state = kwargs['net_state']
     if rnn_state is not None:
@@ -108,3 +95,11 @@ def choose_action(network, states, infos, **kwargs):
         done_preds = done_probs.multinomial()
 
     return acts, done_preds, rnn_state
+
+
+class TaskStats(object):
+    def __init__(self):
+        self._prev_status = None
+
+    def add_tasks_info(self, is_done, infos):
+        pass
