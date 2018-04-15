@@ -1,9 +1,10 @@
-from enum import Enum
+from enum import IntEnum
 import numpy as np
 import itertools as it
+import pandas as pd
+import warnings
 
-
-class TaskStatus(Enum):
+class TaskStatus(IntEnum):
     RUNNING = 0
     SUCCESS = 1
     FAIL = 2
@@ -372,3 +373,4 @@ class AskHumanManager(TaskManager):
         id = options.index(answer)
         task = task_types[id].create(rnd_state, state_info)
         return task
+

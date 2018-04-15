@@ -1,5 +1,6 @@
 from ..environment_creator import BaseEnvironmentCreator
-from ..warehouse import warehouse_tasks as tasks
+from .warehouse_tasks import TaskStatus, TaskManager
+
 
 class WarehouseGameCreator(BaseEnvironmentCreator):
 

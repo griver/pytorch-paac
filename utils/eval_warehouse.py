@@ -2,7 +2,9 @@ from .evaluate import model_evaluation, logging, F
 from .utils import BinaryClassificationStats
 import numpy as np
 import itertools
-import torch as th
+import warnings
+import pandas as pd
+from emulators.warehouse import TaskStatus
 
 def _to_numpy(torch_variable, flatten=False):
     if flatten:
@@ -10,6 +12,7 @@ def _to_numpy(torch_variable, flatten=False):
     return torch_variable.data.cpu().numpy()
 
 
+@model_evaluation
 def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_prediction_rule=None):
     """
     Runs play with the network for num_episodes episodes.
@@ -33,6 +36,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     num_steps = np.zeros(num_envs, dtype=np.int64)
     action_codes = np.eye(batch_emulator.num_actions)
     termination_model_stats = BinaryClassificationStats()
+    task_stats = TaskStats('property','n_steps')
     targets = []
     preds = []
 
@@ -45,14 +49,16 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
         running = np.logical_not(terminated)
 
         acts, task_done, net_state = choose_action(network, states, infos, **extra_inputs)
-
+        termination_model_stats.add_batch( #need to squeese targets down to 2 labels
+            preds = _to_numpy(task_done, True)[running],
+            targets = infos['task_status'][running],
+        )
         extra_inputs['net_state'] = net_state
-        targets.extend(infos['task_status'][running])
-        preds.extend(_to_numpy(task_done, True)[running])
         acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(),:]
         # If is_done is True then states and infos are probably contain garbage or zeros.
         # It is because Vizdoom doesn't return game variables for a finished game.
         states, rewards, is_done, infos = batch_emulator.next(acts_one_hot)
+        task_stats.add_stats(is_done, **infos)
 
         just_ended = np.logical_and(running, is_done)
         total_r[running] += rewards[running]
@@ -69,11 +75,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
                 states, infos = batch_emulator.reset_all()
                 terminated[:] = False
 
-    termination_model_stats.add_batch(
-        preds=np.array(preds),
-        targets=np.array(targets)
-    )
-    return episode_steps, episode_rewards, termination_model_stats
+    return episode_steps, episode_rewards, termination_model_stats, task_stats
 
 
 def choose_action(network, states, infos, **kwargs):
@@ -97,9 +99,40 @@ def choose_action(network, states, infos, **kwargs):
     return acts, done_preds, rnn_state
 
 
-class TaskStats(object):
-    def __init__(self):
-        self._prev_status = None
+class TaskStatisticsError(ValueError):
+    pass
 
-    def add_tasks_info(self, is_done, infos):
-        pass
+
+class TaskStats(pd.DataFrame):
+    def __init__(self, *extra_properties):
+        """
+
+        :param extra_properties: names of task properties you want to store
+         aside from task_id and task's termination status.
+        """
+        super(TaskStats, self).__init__(columns=['task_id', 'status'] + extra_properties)
+        self._extra_columns = self.extra_properties
+
+    def add_stats(self, episode_is_done, task_status, task_id, **task_properties):
+        self._check_new_data(task_status, task_id, **task_properties)
+        failed = (task_status == TaskStatus.FAIL)
+        completed = (task_status == TaskStatus.SUCCESS)
+        task_done = np.logical_or(failed, completed, episode_is_done)
+
+        idx = len(self)
+
+        for i, task_terminated in enumerate(task_done):
+            if not task_terminated: continue
+            d = dict(task_id=task_id[i], status=task_status[i])
+            d.update({k:task_properties[k][i] for k in self._extra_columns})
+            self.loc[idx] = d
+
+    def _check_new_data(self, task_status, task_id, **task_properties):
+        required = set(self._extra_columns)
+        received = set(k for k in task_properties.keys())
+        shortage = required.difference(received)
+        if shortage:
+            raise TaskStatisticsError("Expected values for {} columns but did'n get them!")
+        excess = received.difference(required)
+        if excess:
+            warnings.warn("Received data for unspecified columns {}. The data will be discarded.", Warning)

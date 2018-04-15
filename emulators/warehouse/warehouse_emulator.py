@@ -243,7 +243,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         reward, _ = self.task.update(reward, is_done, self._state_info)
         reward = reward * self.reward_coef
-        info = {'task_status': self.task.status.value}
+        info = {'task_status': self.task.status.value, 'n_steps':self.task.n_steps}
         info.update(self.task.as_info_dict())
         #print('emulator#{} r={}, task={}, info={}'.format(self._id, reward, self.task, info))
         return self._state_info.obs, reward, is_done, info
