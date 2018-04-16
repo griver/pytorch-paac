@@ -1,14 +1,14 @@
 import argparse
 import logging
-import signal
 import sys
 import torch
+import numpy as np
 from emulators.warehouse import WarehouseGameCreator, warehouse_tasks as tasks
 
 import utils
 from utils import eval_warehouse as evaluate
 from networks import warehouse_nets
-
+from collections import namedtuple
 from multi_task import MultiTaskPAAC
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
@@ -17,8 +17,12 @@ ARGS_FILE='args_multi_task.json'
 
 from train import args_to_str, concurrent_emulator_handler, set_exit_handler
 
+TrainingStats = namedtuple("TrainingStats",
+                           ['mean_r', 'std_r', 'tasks_stats',
+                           'term_acc', 'term_rec', 'term_prec',
+                           't_ratio', 'p_ratio'])
 
-def eval_network(network, env_creator, num_episodes, greedy=False, **emulator_args):
+def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True, **emulator_args):
     emulator = SequentialBatchEmulator(env_creator, num_episodes, auto_reset=False,
                                        specific_emulator_args=emulator_args)
     try:
@@ -26,6 +30,30 @@ def eval_network(network, env_creator, num_episodes, greedy=False, **emulator_ar
     finally:
         emulator.close()
         set_exit_handler()
+
+    num_steps, rewards, prediction_stats, task_stats = stats
+    mean_r, std_r = np.mean(rewards), np.std(rewards)
+    acc = prediction_stats.accuracy
+    rec = prediction_stats.recall
+    prec = prediction_stats.precision
+    targets_ratio = prediction_stats.targets_ratio
+    preds_ratio = prediction_stats.predictions_ratio
+
+    stats = TrainingStats(
+        mean_r=mean_r, std_r=std_r, tasks_stats=task_stats,
+        term_acc=acc, term_prec=prec, term_rec=rec,
+        t_ratio=targets_ratio, p_ratio=preds_ratio
+    )
+    if verbose:
+        lines = [
+            'Perfromed {0} tests:'.format(len(num_steps)),
+            'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
+            'Tasks Statistics:',
+            task_stats.report_str(),
+            'Termination Predictor:',
+            'Acc: {:.2f}% | Precision: {:.2f}% | Recall: {:.2f}'.format(acc, prec, rec),
+            'Class 1 ratio. Targets: {0:.2f}% Preds: {1:.2f}%'.format(targets_ratio, preds_ratio)]
+        logging.info(utils.red('\n'.join(lines)))
 
     return stats
 
@@ -40,7 +68,7 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = MultiTaskPAAC(network_creator, batch_env, args)
-        learner.set_eval_function(eval_network, learner.network, env_creator, 10)
+        learner.set_eval_function(eval_network, learner.network, env_creator, 10, verbose=True)
         learner.train()
     finally:
         batch_env.close()

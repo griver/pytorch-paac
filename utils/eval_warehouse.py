@@ -4,7 +4,7 @@ import numpy as np
 import itertools
 import warnings
 import pandas as pd
-from emulators.warehouse import TaskStatus
+import emulators.warehouse.warehouse_tasks as tasks
 
 def _to_numpy(torch_variable, flatten=False):
     if flatten:
@@ -104,6 +104,7 @@ class TaskStatisticsError(ValueError):
 
 
 class TaskStats(pd.DataFrame):
+    task_id2name = {cls.task_id:cls.__name__ for cls in tasks.WarehouseTask.__subclasses__()}
     def __init__(self, *extra_properties):
         """
 
@@ -115,8 +116,8 @@ class TaskStats(pd.DataFrame):
 
     def add_stats(self, episode_is_done, task_status, task_id, **task_properties):
         self._check_new_data(task_status, task_id, **task_properties)
-        failed = (task_status == TaskStatus.FAIL)
-        completed = (task_status == TaskStatus.SUCCESS)
+        failed = (task_status == tasks.TaskStatus.FAIL)
+        completed = (task_status == tasks.TaskStatus.SUCCESS)
         task_done = np.logical_or(failed, completed, episode_is_done)
 
         idx = len(self)
@@ -136,3 +137,14 @@ class TaskStats(pd.DataFrame):
         excess = received.difference(required)
         if excess:
             warnings.warn("Received data for unspecified columns {}. The data will be discarded.", Warning)
+
+    def report_str(self):
+        success = tasks.TaskStatus.SUCCESS
+        lines = []
+        for i, name in sorted(self.task_id2name.items()):
+            task_i = self[self['taks_id'] == i]
+            total_i = len(task_i)
+            succ_i = (task_i['status'] == success).mean() if total_i else 0.
+            succ_i *= 100. #make %
+            lines.append('{}: {:.2f}%({})'.format(name, succ_i, total_i))
+        return '\n'.join(lines)

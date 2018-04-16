@@ -40,7 +40,7 @@ class MultiTaskPAAC(PAACLearner):
         total_rewards, training_stats = [], []
 
         if self.eval_func is not None:
-            stats = self.evaluate(verbose=True)
+            stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
             training_stats.append((self.global_step, stats))
             curr_mean_r = best_mean_r = stats.mean_r
 
@@ -141,7 +141,7 @@ class MultiTaskPAAC(PAACLearner):
                 )
             if counter % (self.eval_every // rollout_steps) == 0:
                 if (self.eval_func is not None):
-                    stats = self.evaluate(verbose=True)
+                    stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
                     training_stats.append((self.global_step, stats))
                     curr_mean_r = stats.mean_r
 
@@ -173,39 +173,6 @@ class MultiTaskPAAC(PAACLearner):
         acts_one_hot = self.action_codes[acts.data.cpu().view(-1).numpy(), :]
         return acts_one_hot, values, selected_log_probs, entropy, log_done, rnn_states
 
-    def evaluate(self, verbose=True):
-        num_steps, rewards, *term_stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
-
-        mean_steps = np.mean(num_steps)
-        min_r, max_r = np.min(rewards), np.max(rewards)
-        mean_r, std_r = np.mean(rewards), np.std(rewards)
-        if term_stats:
-            term_stats = term_stats[0]
-            acc = term_stats.accuracy
-            rec = term_stats.recall
-            prec = term_stats.precision
-            targets_ratio = term_stats.targets_ratio
-            preds_ratio = term_stats.predictions_ratio
-        else:
-            term_stats=acc=rec=prec=targets_ratio=preds_ratio=0.
-
-        stats = TrainingStats(
-            mean_r=mean_r, min_r=min_r, max_r=max_r, std_r=std_r,
-            term_acc=acc, term_prec=prec, term_rec=rec,
-            mean_steps=mean_steps, t_ratio=targets_ratio, p_ratio=preds_ratio
-        )
-
-        if verbose:
-            lines = [
-                'Perfromed {0} tests:'.format(len(num_steps)),
-                'Mean number of steps: {0:.3f}'.format(mean_steps),
-                'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
-                'Termination Predictor:',
-                'Acc: {:.2f}% | Precision: {:.2f}% | Recall: {:.2f}'.format(acc, prec, rec),
-                'Class 1 ratio. Targets: {0:.2f}% Preds: {1:.2f}%'.format(targets_ratio, preds_ratio)]
-            logging.info(red('\n'.join(lines)))
-
-        return stats
 
     def compute_termination_model_loss(self, log_terminals, tasks):
         #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
