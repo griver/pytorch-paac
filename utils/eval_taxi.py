@@ -229,12 +229,12 @@ def choose_action(network, *inputs, **kwargs):
     done_probs = F.softmax(done_logits, dim=1)
 
     if not kwargs['greedy']:
-        acts = a_probs.multinomial()
+        acts = a_probs.multinomial(1)
     else:
         acts = a_probs.max(1, keepdim=True)[1]
     if kwargs['termination_threshold'] is None:
         # multinomial returns a [batch_size, num_samples] shaped tensor
-        done_preds = done_probs.multinomial()[:,0]
+        done_preds = done_probs.multinomial(1)[:,0]
     else:
         done_preds = done_probs[:,1] > kwargs['termination_threshold']
     extra_info = {'done_probs':done_probs, 'act_probs':a_probs}

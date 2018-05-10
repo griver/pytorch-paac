@@ -136,6 +136,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         self._spawn_item_if_needed()
         #spawn_player:
         spawn_spot = self.rnd.choice(list(player_spawn_spots))
+        print('')
         self._execute('spawn_player', spawn_spot)
         self.game.make_action(self.noop)#we need a tick for commands("spawn_player", .etc) to finish their work
 

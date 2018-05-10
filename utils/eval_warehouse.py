@@ -86,7 +86,7 @@ def choose_action(network, states, infos, **kwargs):
         values, a_logits, done_logits = network(states, infos)
 
     a_probs = F.softmax(a_logits, dim=1)
-    if not kwargs['greedy']: acts = a_probs.multinomial()
+    if not kwargs['greedy']: acts = a_probs.multinomial(1)
     else: acts = a_probs.max(1, keepdim=True)[1]
 
     done_probs = F.softmax(done_logits, dim=1)
@@ -94,7 +94,7 @@ def choose_action(network, states, infos, **kwargs):
     if prediction_rule:
         done_preds = prediction_rule(done_probs)
     else:
-        done_preds = done_probs.multinomial()
+        done_preds = done_probs.multinomial(1)
 
     return acts, done_preds, rnn_state
 
@@ -107,12 +107,11 @@ class TaskStats(pd.DataFrame):
     task_id2name = {cls.task_id:cls.__name__ for cls in tasks.WarehouseTask.__subclasses__()}
     def __init__(self, *extra_properties):
         """
-
         :param extra_properties: names of task properties you want to store
          aside from task_id and task's termination status.
         """
-        super(TaskStats, self).__init__(columns=['task_id', 'status'] + extra_properties)
-        self._extra_columns = self.extra_properties
+        super(TaskStats, self).__init__(columns=('task_id', 'status') + extra_properties)
+        self._extra_columns = extra_properties
 
     def add_stats(self, episode_is_done, task_status, task_id, **task_properties):
         self._check_new_data(task_status, task_id, **task_properties)

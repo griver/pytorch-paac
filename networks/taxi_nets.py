@@ -1,9 +1,9 @@
 from .default_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
 
-def preprocess_taxi_input(obs, tasks_ids, Ttypes, volatile=False):
+def preprocess_taxi_input(obs, tasks_ids, Ttypes):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
-    obs = Variable(obs, volatile=volatile).type(Ttypes.FloatTensor)
-    tasks_ids = Variable(Ttypes.LongTensor(tasks_ids.tolist()), volatile=volatile)
+    obs = Variable(obs).type(Ttypes.FloatTensor)
+    tasks_ids = Variable(Ttypes.LongTensor(tasks_ids.tolist()))
     return obs, tasks_ids
 
 
@@ -37,9 +37,8 @@ class MultiTaskFFNetwork(nn.Module):
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
 
     def forward(self, obs, infos):
-        volatile = not self.training
         task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, infos, self._intypes, volatile)
+        obs, task_ids = self._preprocess(obs, infos, self._intypes)
         #conv
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -95,9 +94,8 @@ class MultiTaskLSTMNetwork(nn.Module):
         self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
 
     def forward(self, obs, infos, rnn_state):
-        volatile = not self.training
         task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
         #obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -113,10 +111,9 @@ class MultiTaskLSTMNetwork(nn.Module):
         return state_value, action_logits, terminal_logits, (hx,cx)
 
     def get_initial_state(self, batch_size):
-        volatile = not self.training
         hx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._intypes.FloatTensor)
         cx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._intypes.FloatTensor)
-        return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
+        return Variable(hx), Variable(cx)
 
     def terminal_prediction_params(self):
         for name, param in self.named_parameters():
@@ -144,9 +141,8 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         self.fc_terminal = nn.Linear(256, 2)
 
     def forward(self, obs, infos, rnn_state):
-        volatile = not self.training
         task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -176,8 +172,7 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         self.fc_terminal2 = nn.Linear(256 + self._num_actions, 2)
 
     def forward(self, obs, task_ids, rnn_state):
-        volatile = not self.training
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes, volatile)
+        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))

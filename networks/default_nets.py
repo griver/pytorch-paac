@@ -8,16 +8,16 @@ import numpy as np
 import functools
 from collections import namedtuple
 
-def preprocess_images(s_numpy, t_types, volatile=False):
+def preprocess_images(s_numpy, t_types):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
     s_numpy = (np.ascontiguousarray(s_numpy, dtype=np.float32)/127.5) - 1. #[0,255] to [-1.,1.]
-    return Variable(t_types.FloatTensor(s_numpy), volatile=volatile)
+    return Variable(t_types.FloatTensor(s_numpy))
 
 
-def old_preprocess_images(s_numpy, t_types, volatile=False):
+def old_preprocess_images(s_numpy, t_types):
     # pytorch conv layers expect inputs of shape (batch, C,H,W)
     s_numpy = np.ascontiguousarray(s_numpy, dtype=np.float32)/255. #[0,255] to [0.,1.]
-    return Variable(t_types.FloatTensor(s_numpy), volatile=volatile)
+    return Variable(t_types.FloatTensor(s_numpy))
 
 
 class AtariFF(nn.Module):
@@ -46,9 +46,7 @@ class AtariFF(nn.Module):
         self.fc_value = nn.Linear(256, 1)
 
     def forward(self, states, infos):
-        volatile = not self.training
-
-        states = self._preprocess(states, self._intypes, volatile)
+        states = self._preprocess(states, self._intypes)
         x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
@@ -87,8 +85,7 @@ class AtariLSTM(nn.Module):
         self.fc_value = nn.Linear(256, 1)
 
     def forward(self, states, infos, rnn_inputs):
-        volatile = not self.training
-        states = self._preprocess(states, self._intypes, volatile)
+        states = self._preprocess(states, self._intypes)
         x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
@@ -100,11 +97,10 @@ class AtariLSTM(nn.Module):
         Returns initial lstm state as a tuple(hidden_state, cell_state).
         Intial lstm state is supposed to be used at the begging of an episode.
         '''
-        volatile = not self.training
         t_type = self._intypes.FloatTensor
         hx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
         cx = torch.zeros(batch_size, self.lstm.hidden_size).type(t_type)
-        return Variable(hx, volatile=volatile), Variable(cx, volatile=volatile)
+        return Variable(hx), Variable(cx)
 
 
 atari_nets = {
@@ -132,8 +128,7 @@ class VizdoomLSTM(AtariLSTM):
         self.fc_value = nn.Linear(hidden_dim, 1)
 
     def forward(self, states, infos, rnn_inputs):
-        volatile = not self.training
-        x = self._preprocess(states, self._intypes, volatile)
+        x = self._preprocess(states, self._intypes)
         nl = self.nonlinearity
         x = nl(self.conv1(x))
         x = nl(self.conv2(x))
@@ -156,7 +151,7 @@ def init_lstm(module, forget_bias=1.0):
     """
     biases = [module.bias_ih, module.bias_hh]
     for bias in biases:
-        nn_init.constant(bias, 0.)
+        nn_init.constant_(bias, 0.)
 
     bias_size = module.bias_ih.size()[0] #4*hidden_size
     # bias values goes in order: [ingate, forgetgate, cellgate, outgate]
@@ -174,8 +169,8 @@ def init_conv2d(module):
     """
     (h, w), c = module.kernel_size, module.in_channels
     d = 1.0 / np.sqrt(c*h*w)
-    nn_init.uniform(module.weight, -d, d)
-    nn_init.uniform(module.bias, -d, d)
+    nn_init.uniform_(module.weight, -d, d)
+    nn_init.uniform_(module.bias, -d, d)
 
 
 def init_linear(module):
@@ -184,8 +179,8 @@ def init_linear(module):
     but who knows what future holds.
     """
     d = 1.0 / np.sqrt(module.in_features)
-    nn_init.uniform(module.weight, -d, d)
-    nn_init.uniform(module.bias, -d, d)
+    nn_init.uniform_(module.weight, -d, d)
+    nn_init.uniform_(module.bias, -d, d)
 
 
 def init_model_weights(module):
@@ -201,8 +196,9 @@ def init_model_weights(module):
 
 
 def calc_output_shape(obs_dims, net_layers):
-    rnd_input = torch.randn(1, *obs_dims)  # batch_size=1
-    x = Variable(rnd_input, volatile=True)
-    for l in net_layers:
-        x = l(x)
-    return x.size()[1:]
+    with torch.no_grad():
+        rnd_input = torch.randn(1, *obs_dims)  # batch_size=1
+        x = Variable(rnd_input)
+        for l in net_layers:
+            x = l(x)
+        return x.size()[1:]

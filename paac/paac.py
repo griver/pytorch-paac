@@ -8,6 +8,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch import optim, nn
 from torch.autograd import Variable
+from torch.distributions.one_hot_categorical import OneHotCategorical
 
 import utils
 from utils import ensure_dir, join_path, isfile, yellow, red
@@ -16,6 +17,7 @@ from collections import namedtuple
 
 TrainingStats = namedtuple("TrainingStats",
                            ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
+
 
 class PAACLearner(object):
     CHECKPOINT_SUBDIR = 'checkpoints/'
@@ -70,7 +72,7 @@ class PAACLearner(object):
         self.eval_func = None
 
         if self.args['clip_norm_type'] == 'global':
-            self.clip_gradients = nn.utils.clip_grad_norm
+            self.clip_gradients = nn.utils.clip_grad_norm_
         elif self.args['clip_norm_type'] == 'local':
             self.clip_gradients = utils.clip_local_grad_norm
         elif self.args['clip_norm_type'] == 'ignore':
@@ -170,9 +172,9 @@ class PAACLearner(object):
             global_norm = self.clip_gradients(self.network.parameters(), clip_norm)
             self.optimizer.step()
 
-            average_loss.update(total=loss.data[0],
-                                actor=actor_loss.data[0],
-                                critic=critic_loss.data[0])
+            average_loss.update(total=loss.item(),
+                                actor=actor_loss.item(),
+                                critic=critic_loss.item())
 
             counter += 1
             if counter % (self.print_every // rollout_steps) == 0:
@@ -205,7 +207,7 @@ class PAACLearner(object):
         probs = F.softmax(a_logits, dim=1)
         log_probs = F.log_softmax(a_logits, dim=1)
         entropy = torch.neg((log_probs * probs)).sum(1)
-        acts = probs.multinomial().detach()
+        acts = probs.multinomial(1).detach()
         selected_log_probs = log_probs.gather(1, acts)
 
         check_log_zero(log_probs.data)

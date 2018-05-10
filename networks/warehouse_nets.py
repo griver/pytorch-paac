@@ -2,12 +2,12 @@ from .default_nets import torch, nn, F, Variable
 from .default_nets import calc_output_shape, AtariLSTM
 import numpy as np
 
-def preprocess_warehouse(obs, infos, t_types, volatile=False):
+def preprocess_warehouse(obs, infos, t_types):
     obs = (np.ascontiguousarray(obs, dtype=np.float32) / 127.5) - 1.
-    obs = Variable(t_types.FloatTensor(obs), volatile=volatile)
+    obs = Variable(t_types.FloatTensor(obs))
 
-    task_ids = Variable(t_types.LongTensor(infos['task_id']), volatile=volatile)
-    props = Variable(t_types.LongTensor(infos['property']), volatile=volatile)
+    task_ids = Variable(t_types.LongTensor(infos['task_id']))
+    props = Variable(t_types.LongTensor(infos['property']))
     return obs, task_ids, props
 
 
@@ -43,23 +43,19 @@ class WarehouseDefault(AtariLSTM):
         self.fc_task_end = nn.Linear(hidden_dim, 2)
 
     def forward(self, states, infos, rnn_inputs):
-        try:
-            volatile = not self.training
-            x, task_ids, prop_ids = self._preprocess(states, infos, self._intypes, volatile)
-            nl = self.nonlinearity
-            x = nl(self.conv1(x))
-            x = nl(self.conv2(x))
-            x = nl(self.conv3(x))
-            x = x.view(x.size()[0], -1)
-            tasks = self.embed_task(task_ids)
-            props = self.embed_prop(prop_ids)
-            x = torch.cat((x,tasks, props), dim=1)
-            hx, cx = self.lstm(x, rnn_inputs)
-            task_end_logits = self.fc_task_end(hx)
-            return self.fc_value(hx), self.fc_policy(hx), task_end_logits, (hx, cx)
-        except Exception as e:
-            print('infos:', infos)
-            raise e
+        x, task_ids, prop_ids = self._preprocess(states, infos, self._intypes)
+        nl = self.nonlinearity
+        x = nl(self.conv1(x))
+        x = nl(self.conv2(x))
+        x = nl(self.conv3(x))
+        x = x.view(x.size()[0], -1)
+        tasks = self.embed_task(task_ids)
+        props = self.embed_prop(prop_ids)
+        x = torch.cat((x,tasks, props), dim=1)
+        hx, cx = self.lstm(x, rnn_inputs)
+        task_end_logits = self.fc_task_end(hx)
+        return self.fc_value(hx), self.fc_policy(hx), task_end_logits, (hx, cx)
+
 
 warehouse_nets = dict(
     default=WarehouseDefault,
