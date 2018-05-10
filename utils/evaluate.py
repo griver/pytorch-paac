@@ -1,6 +1,7 @@
 import numpy as np
 import itertools
 import logging
+import torch
 import torch.nn.functional as F
 import time
 
@@ -8,7 +9,8 @@ def model_evaluation(eval_function):
     def wrapper(network, *args, **kwargs):
         prev_mode = network.training
         network.eval() #set to the inference mode
-        eval_stats = eval_function(network, *args, **kwargs)
+        with torch.no_grad():
+            eval_stats = eval_function(network, *args, **kwargs)
         network.train(prev_mode)
         return eval_stats
 
@@ -127,7 +129,7 @@ def choose_action(network, states, infos, **kwargs):
 
     a_probs = F.softmax(a_logits, dim=1)
     if not kwargs['greedy']:
-        acts = a_probs.multinomial()
+        acts = a_probs.multinomial(1)
     else:
         acts = a_probs.max(1, keepdim=True)[1]
     return acts, rnn_state
