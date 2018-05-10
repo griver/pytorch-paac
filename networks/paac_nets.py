@@ -147,7 +147,7 @@ def init_lstm(module, forget_bias=1.0):
     """
     biases = [module.bias_ih, module.bias_hh]
     for bias in biases:
-        nn_init.constant(bias, 0.)
+        nn_init.constant_(bias, 0.)
 
     bias_size = module.bias_ih.size()[0] #4*hidden_size
     # bias values goes in order: [ingate, forgetgate, cellgate, outgate]
@@ -165,8 +165,8 @@ def init_conv2d(module):
     """
     (h, w), c = module.kernel_size, module.in_channels
     d = 1.0 / np.sqrt(c*h*w)
-    nn_init.uniform(module.weight, -d, d)
-    nn_init.uniform(module.bias, -d, d)
+    nn_init.uniform_(module.weight, -d, d)
+    nn_init.uniform_(module.bias, -d, d)
 
 
 def init_linear(module):
@@ -175,8 +175,8 @@ def init_linear(module):
     but who knows what future holds.
     """
     d = 1.0 / np.sqrt(module.in_features)
-    nn_init.uniform(module.weight, -d, d)
-    nn_init.uniform(module.bias, -d, d)
+    nn_init.uniform_(module.weight, -d, d)
+    nn_init.uniform_(module.bias, -d, d)
 
 
 def init_model_weights(module):

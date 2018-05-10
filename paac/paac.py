@@ -69,7 +69,7 @@ class PAACLearner(object):
         self.eval_func = None
 
         if self.args['clip_norm_type'] == 'global':
-            self.clip_gradients = nn.utils.clip_grad_norm
+            self.clip_gradients = nn.utils.clip_grad_norm_
         elif self.args['clip_norm_type'] == 'local':
             self.clip_gradients = utils.clip_local_grad_norm
         elif self.args['clip_norm_type'] == 'ignore':
