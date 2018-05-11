@@ -43,7 +43,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     extra_inputs = {'greedy': greedy, 'prediction_rule':task_prediction_rule}
     extra_inputs['net_state'] = network.get_initial_state(num_envs) if is_rnn else None
 
-
+    print('================= Eval reset: ===========================')
     states, infos = batch_emulator.reset_all()
     for t in itertools.count():
         running = np.logical_not(terminated)
@@ -58,9 +58,9 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
         # If is_done is True then states and infos are probably contain garbage or zeros.
         # It is because Vizdoom doesn't return game variables for a finished game.
         states, rewards, is_done, infos = batch_emulator.next(acts_one_hot)
-        task_stats.add_stats(is_done, **infos)
-
         just_ended = np.logical_and(running, is_done)
+        task_stats.add_stats(just_ended, **infos) #only episode 
+
         total_r[running] += rewards[running]
         num_steps[running] += 1
         episode_rewards.extend(total_r[just_ended])
@@ -104,44 +104,49 @@ class TaskStatisticsError(ValueError):
 
 
 class TaskStats(pd.DataFrame):
+    # temporary properties
+    _internal_names = pd.DataFrame._internal_names + ['_extra_properties']
+    _internal_names_set = set(_internal_names)
     task_id2name = {cls.task_id:cls.__name__ for cls in tasks.WarehouseTask.__subclasses__()}
+
     def __init__(self, *extra_properties):
         """
         :param extra_properties: names of task properties you want to store
          aside from task_id and task's termination status.
         """
         super(TaskStats, self).__init__(columns=('task_id', 'status') + extra_properties)
-        self._extra_columns = extra_properties
+        self._extra_properties = extra_properties
+
 
     def add_stats(self, episode_is_done, task_status, task_id, **task_properties):
         self._check_new_data(task_status, task_id, **task_properties)
         failed = (task_status == tasks.TaskStatus.FAIL)
         completed = (task_status == tasks.TaskStatus.SUCCESS)
-        task_done = np.logical_or(failed, completed, episode_is_done)
-
-        idx = len(self)
+        task_done = np.logical_or(episode_is_done, np.logical_or(failed, completed))
 
         for i, task_terminated in enumerate(task_done):
             if not task_terminated: continue
+
             d = dict(task_id=task_id[i], status=task_status[i])
-            d.update({k:task_properties[k][i] for k in self._extra_columns})
+            d.update({k:task_properties[k][i] for k in self._extra_properties})
+            idx = len(self)
             self.loc[idx] = d
 
     def _check_new_data(self, task_status, task_id, **task_properties):
-        required = set(self._extra_columns)
+        required = set(self._extra_properties)
         received = set(k for k in task_properties.keys())
         shortage = required.difference(received)
         if shortage:
-            raise TaskStatisticsError("Expected values for {} columns but did'n get them!")
+            raise TaskStatisticsError("Expected values for {} columns but did'n get them!".format(shortage))
         excess = received.difference(required)
         if excess:
-            warnings.warn("Received data for unspecified columns {}. The data will be discarded.", Warning)
+            warnings.warn("Received data for unspecified columns {}. The data will be discarded.".format(excess), Warning)
 
     def report_str(self):
         success = tasks.TaskStatus.SUCCESS
         lines = []
         for i, name in sorted(self.task_id2name.items()):
-            task_i = self[self['taks_id'] == i]
+            task_i = self[self['task_id'] == i]
             total_i = len(task_i)
             succ_i = (task_i['status'] == success).mean() if total_i else 0.
             succ_i *= 100. #make %

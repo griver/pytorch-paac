@@ -75,6 +75,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         self.task_manager = deepcopy(task_manager) if task_manager else DummyManager()
         self.__check_task_manager()
         self.task = None
+        self.emulator_id = emulator_id
 
     def __check_task_manager(self):
         for var in self.task_manager.required_state_info():
@@ -106,12 +107,15 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         return legal_actions, noop
 
     def reset(self):
+        print('====== Reset emulator #{} ====='.format(self.emulator_id))
         self._init_episode()
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
         self.task = self.task_manager.next(self._state_info, self.rnd)
-        info = {'task_status':self.task.status.value}
+
+        info = {'task_status':self.task.status.value, 'n_steps':self.task.n_steps}
         info.update(self.task.as_info_dict())
+
         return self._state_info.obs, info
 
     def _init_episode(self):
@@ -135,8 +139,9 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         self._spawn_item_if_needed()
         #spawn_player:
+        print('Rooms:', list(rooms.keys()), 'spots:', list(player_spawn_spots))
         spawn_spot = self.rnd.choice(list(player_spawn_spots))
-        print('')
+        print('spawn spot:', spawn_spot)
         self._execute('spawn_player', spawn_spot)
         self.game.make_action(self.noop)#we need a tick for commands("spawn_player", .etc) to finish their work
 
@@ -204,6 +209,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
                 return
             item_id = self.rnd.choice(list(self._map_info['items'].keys()))
             self._execute('spawn_item', item_id)
+            print('Spawn', self._map_info['items'][item_id])
             self._num_spawned += 1
 
     def _execute(self, script_name, arg1=0,arg2=0, arg3=0):
@@ -233,7 +239,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         reward = self.game.make_action(action, self.action_repeat)
         is_done = self.game.is_episode_finished()
         if is_done: #task_id 0 is a NoTask. Zero value for property has the same meaning.
-            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':0, 'property':0}
+            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':0, 'property':0, 'n_steps':0}
             #completed = [str(t) for t in self._completed] + [str(self.task)]
             #print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
 
