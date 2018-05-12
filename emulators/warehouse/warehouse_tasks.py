@@ -342,11 +342,11 @@ class TaskManager(AbstractTaskManager):
         is_available = [t.is_available(state_info) for t in self._task_types]
         priorities = self._priorities[is_available]
         task_types = self._task_types[is_available]
-        print('available tasks:', [t.__name__ for t in task_types])
+        #print('available tasks:', [t.__name__ for t in task_types])
         selected_task_type = rnd_state.choice(task_types,
                                               p=priorities/sum(priorities))
         task = selected_task_type.create(rnd_state, state_info)
-        print('selected task:', task, 'as_dict:', task.as_info_dict())
+        #print('selected task:', task, 'as_dict:', task.as_info_dict())
         return task
 
     def required_state_info(self):

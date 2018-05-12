@@ -25,7 +25,7 @@ class BaseEnvironmentCreator(object):
                 setattr(self, name, value)
         else:
             raise ValueError(
-                "{0} Can't find {0} game".format(self.__class__, game_name)
+                "{0} can't find {1} game in the folder {2}".format(self.__class__, game_name, resource_folder)
             )
 
     def _init_default(self):

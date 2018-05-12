@@ -107,7 +107,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         return legal_actions, noop
 
     def reset(self):
-        print('====== Reset emulator #{} ====='.format(self.emulator_id))
+        #print('====== Reset emulator #{} ====='.format(self.emulator_id))
         self._init_episode()
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
@@ -139,9 +139,9 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         self._spawn_item_if_needed()
         #spawn_player:
-        print('Rooms:', list(rooms.keys()), 'spots:', list(player_spawn_spots))
+        #print('Rooms:', list(rooms.keys()), 'spots:', list(player_spawn_spots))
         spawn_spot = self.rnd.choice(list(player_spawn_spots))
-        print('spawn spot:', spawn_spot)
+        #print('spawn spot:', spawn_spot)
         self._execute('spawn_player', spawn_spot)
         self.game.make_action(self.noop)#we need a tick for commands("spawn_player", .etc) to finish their work
 
@@ -209,7 +209,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
                 return
             item_id = self.rnd.choice(list(self._map_info['items'].keys()))
             self._execute('spawn_item', item_id)
-            print('Spawn', self._map_info['items'][item_id])
+            #print('Spawn', self._map_info['items'][item_id])
             self._num_spawned += 1
 
     def _execute(self, script_name, arg1=0,arg2=0, arg3=0):

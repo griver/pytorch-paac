@@ -24,6 +24,9 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     #auto_reset determines if batch_emulator automatically starts new episode when the previous ends
     #if num_episodes < batch_emulator.num_emulators then it is faster to run with auto_reset turned off.
     auto_reset = getattr(batch_emulator, 'auto_reset', True)
+    if auto_reset:
+        raise ValueError("stats_eval doesn't with batch emulators that reset episodes automatically!")
+        # To collect task statistics we use completed_tas
     num_envs = batch_emulator.num_emulators
     num_episodes = num_episodes if num_episodes else num_envs
     is_rnn = hasattr(network, 'get_initial_state')
@@ -43,7 +46,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     extra_inputs = {'greedy': greedy, 'prediction_rule':task_prediction_rule}
     extra_inputs['net_state'] = network.get_initial_state(num_envs) if is_rnn else None
 
-    print('================= Eval reset: ===========================')
+    #print('================= Eval reset: ===========================')
     states, infos = batch_emulator.reset_all()
     for t in itertools.count():
         running = np.logical_not(terminated)
