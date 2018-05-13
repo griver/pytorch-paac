@@ -176,7 +176,7 @@ class MultiTaskPAAC(PAACLearner):
 
     def compute_termination_model_loss(self, log_terminals, tasks):
         #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
-        tasks_done = (tasks[1:] != 0).astype(np.int32)
+        tasks_done = (tasks[:-1] != 0).astype(np.int32)
         tasks_done = torch.from_numpy(tasks_done).type(self._tensors.LongTensor)
         tasks_done = Variable(tasks_done.view(-1))
         log_terminals = torch.cat(log_terminals, 0) #.type(self._tensors.FloatTensor)

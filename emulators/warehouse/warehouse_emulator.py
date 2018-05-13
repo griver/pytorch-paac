@@ -239,10 +239,12 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         reward = self.game.make_action(action, self.action_repeat)
         is_done = self.game.is_episode_finished()
         if is_done: #task_id 0 is a NoTask. Zero value for property has the same meaning.
-            return self.terminal_obs, reward, is_done, {'task_status':-1, 'task_id':0, 'property':0, 'n_steps':0}
+            info = {'task_status':self.task.status.value, 'n_steps':self.task.n_steps}
+            info.update(self.task.as_info_dict())
+            self._completed.append(self.task)
+            return self.terminal_obs, reward, is_done, info
             #completed = [str(t) for t in self._completed] + [str(self.task)]
             #print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
-
         self._update_state_info(self.game.get_state())
         if self.task.finished():
             self._completed.append(self.task)
@@ -264,19 +266,20 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         is_done = self.game.is_episode_finished()
         if is_done:
-            next_obs = self.terminal_obs
-            return next_obs, reward, is_done, {}
+            info = {'task_status':self.task.status.value, 'n_steps':self.task.n_steps}
+            info.update(self.task.as_info_dict())
+            self._completed.append(self.task)
+            return self.terminal_obs, reward, is_done, info
 
-        doom_state = self.game.get_state()
-        self._update_state_info(doom_state)
+        self._update_state_info(self.game.get_state())
+        if self.task.finished():
+            self._completed.append(self.task)
+            self.task = self.task_manager.next(self._state_info, self.rnd)
+
         reward, _ = self.task.update(reward, is_done, self._state_info)
         reward = reward * self.reward_coef
         info = {'task_status':self.task.status.value}
         info.update(self.task.as_info_dict())
-
-        if self.task.finished():
-            self._completed.append(self.task)
-            self.task = self.task_manager.next(self._state_info, self.rnd)
 
         return self._state_info.obs, reward, is_done, info
 

@@ -49,7 +49,7 @@ def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True,
             'Perfromed {0} tests:'.format(len(num_steps)),
             'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
             'Tasks Statistics:',
-            task_stats.report_str(),
+            task_stats.pretty_repr(),
             'Termination Predictor:',
             'Acc: {:.2f}% | Precision: {:.2f}% | Recall: {:.2f}'.format(acc, prec, rec),
             'Class 1 ratio. Targets: {0:.2f}% Preds: {1:.2f}%'.format(targets_ratio, preds_ratio)]
@@ -77,7 +77,7 @@ def main(args):
 def get_network_and_environment_creator(args, random_seed=None):
     task_manager =  tasks.TaskManager(
         [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
-        priorities=[1.2, 1.5, 1., 1.]
+        priorities=[1., 1., .15, 1.]
     )
 
     env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))

@@ -145,13 +145,26 @@ class TaskStats(pd.DataFrame):
         if excess:
             warnings.warn("Received data for unspecified columns {}. The data will be discarded.".format(excess), Warning)
 
-    def report_str(self):
-        success = tasks.TaskStatus.SUCCESS
-        lines = []
-        for i, name in sorted(self.task_id2name.items()):
-            task_i = self[self['task_id'] == i]
-            total_i = len(task_i)
-            succ_i = (task_i['status'] == success).mean() if total_i else 0.
-            succ_i *= 100. #make %
-            lines.append('{}: {:.2f}%({})'.format(name, succ_i, total_i))
+    def pretty_repr(self):
+        lines = [self.pretty_task_repr(id) for id, name in sorted(self.task_id2name.items())]
         return '\n'.join(lines)
+
+    def pretty_task_repr(self, task_id):
+        '''
+        Returns a string representation of the data about an agent's performance one the specified task.
+        Example of a returned string:
+          'PickUp(20): succ=60.00% fail=35.00% runn=5.00%'
+        '''
+        data = self[self['task_id'] == task_id]
+        total_num = len(data)
+        counts = data['status'].value_counts()
+        dur = data['n_steps'].mean() if total_num else 0
+        strings = ['{:<9}(total={}, dur={:.0f}):'.format(self.task_id2name[task_id], total_num, dur)]
+        if total_num:
+            for status in tasks.TaskStatus:
+                name = status.name[:4].lower()
+                val = status.value
+                num = counts[val] if val in counts else 0
+                percent = (num/total_num)*100
+                strings.append('{}={:.1f}%'.format(name, percent))
+        return ' '.join(strings)
