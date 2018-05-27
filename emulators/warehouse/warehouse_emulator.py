@@ -54,7 +54,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
     SKILL_PARAMS = (
         ComplexityParams(n_rooms=(1, 1), room_dist=1, items_limit=4),#skill=0
-        ComplexityParams(n_rooms=(1, 2), room_dist=1, items_limit=6),#1
+        ComplexityParams(n_rooms=(1, 3), room_dist=1, items_limit=8),#1
         ComplexityParams(n_rooms=(2, 2), room_dist=2, items_limit=8),#2
         ComplexityParams(n_rooms=(2, 3), room_dist=2, items_limit=9),#3
         ComplexityParams(n_rooms=(3, 4), room_dist=2, items_limit=11),#4
@@ -76,6 +76,8 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         self.__check_task_manager()
         self.task = None
         self.emulator_id = emulator_id
+        self._max_lives = 50
+        self._lives = self._max_lives
 
     def __check_task_manager(self):
         for var in self.task_manager.required_state_info():
@@ -107,7 +109,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         return legal_actions, noop
 
     def reset(self):
-        #print('====== Reset emulator #{} ====='.format(self.emulator_id))
+        self._lives = self._max_lives
         self._init_episode()
         doom_state = self.game.get_state()
         self._update_state_info(doom_state)
@@ -179,11 +181,15 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         return {r.id:r for r in rooms}
 
     def _update_room_textures(self, selected_rooms):
+        skill_params = self.SKILL_PARAMS[self.skill]
+        max_rooms = skill_params.n_rooms[-1]
+
         entry_room_id = self._map_info['entry_room'].id
         entry_texture_id = self._map_info['default_texture_id']
         textures = [(t_id,name) for t_id, name in self._map_info['textures']
                     if t_id != entry_texture_id]
-        textures = textures[:6]
+        textures = textures[:max_rooms]
+
         self.rnd.shuffle(textures)
         for r_id, r in selected_rooms.items():
             if r_id == entry_room_id: continue
@@ -247,6 +253,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
             #print('Emulator #{} completed_tasks: {}'.format(self._id, completed), flush=True)
         self._update_state_info(self.game.get_state())
         if self.task.finished():
+            self._lives -= 1 if self.task.status == wh_tasks.TaskStatus.FAIL else 0
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
@@ -255,6 +262,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         info = {'task_status': self.task.status.value, 'n_steps':self.task.n_steps}
         info.update(self.task.as_info_dict())
         #print('emulator#{} r={}, task={}, info={}'.format(self._id, reward, self.task, info))
+        is_done = is_done or (self._lives <= 0)
         return self._state_info.obs, reward, is_done, info
 
     def watch_next(self):
@@ -273,6 +281,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
 
         self._update_state_info(self.game.get_state())
         if self.task.finished():
+            self._lives -= 1 if self.task.status == wh_tasks.TaskStatus.FAIL else 0
             self._completed.append(self.task)
             self.task = self.task_manager.next(self._state_info, self.rnd)
 
@@ -281,5 +290,6 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         info = {'task_status':self.task.status.value}
         info.update(self.task.as_info_dict())
 
+        is_done = is_done or (self._lives <= 0)
         return self._state_info.obs, reward, is_done, info
 

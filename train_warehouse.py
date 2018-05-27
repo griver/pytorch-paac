@@ -48,6 +48,7 @@ def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True,
         lines = [
             'Perfromed {0} tests:'.format(len(num_steps)),
             'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
+            'Mean number of steps: {0:.3f}'.format(np.mean(num_steps)),
             'Tasks Statistics:',
             task_stats.pretty_repr(),
             'Termination Predictor:',
@@ -75,11 +76,11 @@ def main(args):
 
 
 def get_network_and_environment_creator(args, random_seed=None):
-    task_manager =  tasks.TaskManager(
-        [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
-        priorities=[1., 1., .15, 1.]
-    )
-
+    #task_manager =  tasks.TaskManager(
+        #[tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
+        #priorities=[1., 1., .35, 1.]
+    #)
+    task_manager = tasks.TaskManager([tasks.Visit])
     env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))
 
     num_actions = env_creator.num_actions
