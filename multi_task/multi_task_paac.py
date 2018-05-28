@@ -146,6 +146,7 @@ class MultiTaskPAAC(PAACLearner):
                     curr_mean_r = stats.mean_r
 
             if self.global_step - self.last_saving_step >= self.save_every:
+                is_best = False
                 if curr_mean_r > best_mean_r:
                     best_mean_r = curr_mean_r
                     is_best=True
