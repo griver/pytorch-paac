@@ -209,6 +209,7 @@ class WarehouseEmulator(ve.VizdoomEmulator):
         self._state_info.item_count = doom_vars[6:]
 
     def _spawn_item_if_needed(self):
+        return
         if self._can_spawn:
             items_lim = self.SKILL_PARAMS[self.skill].items_limit
             if (self._num_items > items_lim) or (self._num_spawned > items_lim * 1.5):
