@@ -1,4 +1,4 @@
-from .evaluate import model_evaluation, logging, F
+from .evaluate import model_evaluation, logging, F, time
 from .utils import BinaryClassificationStats
 import numpy as np
 import itertools
@@ -20,6 +20,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
          a list that stores total reward from each episode
          a list that stores length of each episode
          a BinaryClassificationStats object
+         a TaskStats object
     """
     #auto_reset determines if batch_emulator automatically starts new episode when the previous ends
     #if num_episodes < batch_emulator.num_emulators then it is faster to run with auto_reset turned off.
@@ -40,8 +41,6 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     action_codes = np.eye(batch_emulator.num_actions)
     termination_model_stats = BinaryClassificationStats()
     task_stats = TaskStats('property','n_steps')
-    targets = []
-    preds = []
 
     extra_inputs = {'greedy': greedy, 'prediction_rule':task_prediction_rule}
     extra_inputs['net_state'] = network.get_initial_state(num_envs) if is_rnn else None
@@ -81,6 +80,91 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     return episode_steps, episode_rewards, termination_model_stats, task_stats
 
 
+@model_evaluation
+def visual_eval(network, env_creator, num_episodes=1, greedy=False, verbose=0, delay=0.05, task_prediction_rule=None):
+    episode_rewards = []
+    episode_steps = []
+    is_rnn = hasattr(network, 'get_initial_state')
+    logging.info('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
+    action_codes = np.eye(env_creator.num_actions)
+    termination_model_stats = BinaryClassificationStats()
+    extra_inputs = {'greedy':greedy, 'prediction_rule':task_prediction_rule}
+
+    def unsqueeze(emulator_outputs):
+        outputs = list(emulator_outputs)
+        state, info = outputs[0], outputs[-1]
+        if state is not None:
+            outputs[0] = state[np.newaxis]
+        if info is not None:
+            outputs[-1] = {k:np.asarray(v)[np.newaxis] for k, v in info.items()}
+        return outputs
+
+    for episode in range(num_episodes):
+        emulator = env_creator.create_environment(np.random.randint(100,1000)+episode)
+        try:
+            extra_inputs['net_state'] = network.get_initial_state(1) if is_rnn else None
+            states, infos = unsqueeze(emulator.reset())
+            total_r = 0
+            prev_task = None
+            print('==='*15)
+            for t in itertools.count():
+                acts, task_done, net_state = choose_action(network, states, infos, **extra_inputs)
+                extra_inputs['net_state'] = net_state
+                act = acts.data.cpu().view(-1).numpy()[0]
+                em_output = emulator.next(action_codes[act])
+                states, reward, is_done, info = unsqueeze(em_output)
+                if verbose > 0:
+                    print_emulator_info(emulator, em_output[-1], prev_task)
+
+                total_r += reward
+                if delay: time.sleep(delay)
+                if is_done: break
+                prev_task = emulator.task
+
+            if verbose > 0:
+                print('\r#{}: {} n_steps={}'.format(
+                    len(emulator._completed), task_str(emulator.task, emulator), prev_task.n_steps))
+                print('Episode#{} num_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
+            episode_rewards.append(total_r)
+            episode_steps.append(t + 1)
+        finally:
+            emulator.close()
+
+    return episode_steps, episode_rewards
+
+
+def print_emulator_info(emulator, info, prev_task):
+    st_info = emulator._state_info
+    room_id = st_info.room_id
+    items = st_info.item_count
+    task = emulator.task
+    if prev_task and prev_task != task:
+        print('\r#{}: {} n_steps={}'.format(
+            len(emulator._completed), task_str(prev_task, emulator),prev_task.n_steps))
+
+    print('\rtask={} room_id={}, num_items={} info={}'.format(
+        task_str(task, emulator), room_id, items, info), end='', flush=True)
+
+
+def task_str(task, emulator):
+    info = emulator._map_info
+    if isinstance(task, tasks.Visit):
+        if task.target_id == info['entry_room'].id:
+            return '[{}] Visit Entry room!'.format(task.status._name_)
+        return '[{}] Visit room with {}'.format(
+            task.status._name_, info['textures'][task.property][1])
+    elif isinstance(task, tasks.CarryItem):
+        if task.target_id == info['entry_room'].id:
+            return '[{}] Bring the item in the entry room!'.format(task.status._name_)
+        return '[{}] Bring the item in the room with {}'.format(
+            task.status._name_, info['textures'][task.property][1])
+    elif isinstance(task, tasks.Drop):
+        return "[{}] Drop the carried item!".format(task.status._name_)
+    elif isinstance(task, tasks.PickUp):
+        return "[{}] Pick up a {}".format(
+            task.status._name_, info['items'][task.target_id])
+
+
 def choose_action(network, states, infos, **kwargs):
     rnn_state = kwargs['net_state']
     if rnn_state is not None:
@@ -104,6 +188,7 @@ def choose_action(network, states, infos, **kwargs):
 
 class TaskStatisticsError(ValueError):
     pass
+
 
 
 class TaskStats(pd.DataFrame):

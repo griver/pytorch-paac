@@ -80,7 +80,6 @@ def get_argparser(eval_modes, default_mode):
     return parser
 
 if __name__=='__main__':
-
     parser = get_argparser(list(eval_mode.keys()), default_mode='stats')
     args = parser.parse_args()
     train_args = utils.load_args(folder=args.folder, file_name=train.ARGS_FILE)

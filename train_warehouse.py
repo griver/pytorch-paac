@@ -77,8 +77,8 @@ def main(args):
 
 def get_network_and_environment_creator(args, random_seed=None):
     #task_manager =  tasks.TaskManager(
-        #[tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
-        #priorities=[1., 1., .35, 1.]
+    #    [tasks.Drop, tasks.PickUp, tasks.Visit, tasks.CarryItem],
+    #    priorities=[1., 1., .35, 1.]
     #)
     task_manager = tasks.TaskManager([tasks.Visit])
     env_creator = WarehouseGameCreator(task_manager=task_manager, **vars(args))

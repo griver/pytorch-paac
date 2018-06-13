@@ -99,7 +99,6 @@ def visual_eval(network, env_creator, test_count, **kwargs):
     is_recurrent = kwargs.get('is_recurrent', False)
     termination_threshold = kwargs.get('termination_threshold', 0.5)
 
-    max_local_steps = 10
     rewards = np.zeros(test_count, dtype=np.float32)
     num_steps = np.full(test_count, float('inf'))
     action_codes = np.eye(env_creator.num_actions)
