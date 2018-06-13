@@ -17,8 +17,7 @@ def model_evaluation(eval_function):
     return wrapper
 
 @model_evaluation
-def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
-               num_episodes=None):
+def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     """
     Runs play with the network for num_episodes episodes.
     Returns:
@@ -28,9 +27,10 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
     #auto_reset determines if batch_emulator automatically starts new episode when the previous ends
     #if num_episodes < batch_emulator.num_emulators then it is faster to run with auto_reset turned off.
     auto_reset = getattr(batch_emulator, 'auto_reset', True)
+    use_rnn = getattr(network, 'get_initial_state')
     num_envs = batch_emulator.num_emulators
     num_episodes = num_episodes if num_episodes else num_envs
-    logging.info('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
 
     episode_rewards, episode_steps = [], []
     terminated = np.full(num_envs, False, dtype=np.bool)
@@ -39,7 +39,7 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
     action_codes = np.eye(batch_emulator.num_actions)
 
     extra_inputs = {'greedy': greedy}
-    extra_inputs['net_state'] = network.get_initial_state(num_envs) if is_recurrent else None
+    extra_inputs['net_state'] = network.get_initial_state(num_envs) if use_rnn else None
     states, infos = batch_emulator.reset_all()
 
     for t in itertools.count():
@@ -68,8 +68,7 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
 
 
 @model_evaluation
-def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
-               num_episodes=1, verbose=0, delay=0.05):
+def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, delay=0.05):
     """
     Plays for num_episodes episodes on a single environment.
     Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
@@ -77,10 +76,11 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
          A list that stores total reward from each episode
          A list that stores length of each episode
     """
-    print('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
+    use_rnn = getattr(network, 'get_initial_state')
     episode_rewards = []
     episode_steps = []
     action_codes = np.eye(env_creator.num_actions)
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
 
     def unsqueeze(emulator_outputs):
         outputs = list(emulator_outputs)
@@ -95,7 +95,7 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
     for episode in range(num_episodes):
         emulator = env_creator.create_environment(np.random.randint(100,1000)+episode)
         try:
-            extra_inputs['net_state'] = network.get_initial_state(1) if is_recurrent else None
+            extra_inputs['net_state'] = network.get_initial_state(1) if use_rnn else None
             states, infos = unsqueeze(emulator.reset())
             total_r = 0
             for t in itertools.count():

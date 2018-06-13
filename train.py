@@ -56,10 +56,10 @@ def concurrent_emulator_handler(batch_env):
     return signal_handler
 
 
-def eval_network(network, env_creator, num_episodes, is_recurrent, greedy=False):
+def eval_network(network, env_creator, num_episodes, greedy=False):
     emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
     try:
-        stats = evaluate.stats_eval(network, emulator, is_recurrent=is_recurrent, greedy=greedy)
+        stats = evaluate.stats_eval(network, emulator, greedy=greedy)
     finally:
         emulator.close()
         set_exit_handler()
@@ -79,8 +79,7 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = PAACLearner(network_creator, batch_env, args)
-        learner.set_eval_function(eval_network,
-                                  learner.network, env_creator, 10, learner.use_rnn) # args to eval_network
+        learner.set_eval_function(eval_network, learner.network, env_creator, 10) # args to eval_network
         learner.train()
     finally:
         batch_env.close()

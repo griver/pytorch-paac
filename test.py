@@ -7,18 +7,7 @@ import torch
 from networks import old_preprocess_images
 import utils
 from paac import PAACLearner
-from train import get_network_and_environment_creator, eval_network, evaluate
-
-
-def print_dict(d, name=None):
-    title = ' '.join(['=='*10, '{}','=='*10])
-    if name is not None:
-        title.format(name)
-
-    print(title)
-    for k in sorted(d.keys()):
-        print('  ', k,':', d[k])
-    print('='*len(title))
+from train import get_network_and_environment_creator, eval_network, evaluate, args_to_str
 
 
 def fix_args_for_test(args, train_args):
@@ -32,7 +21,7 @@ def fix_args_for_test(args, train_args):
 
     if args.framework == 'vizdoom':
         args.reward_coef = 1.
-        args.step_delay = 0.15
+        args.step_delay = 0.20
     elif args.framework == 'atari':
         args.random_start = True
         args.single_life_episodes = False
@@ -40,18 +29,24 @@ def fix_args_for_test(args, train_args):
     return args
 
 
-def load_trained_network(net_creator, checkpoint_path):
-    checkpoint = torch.load(checkpoint_path)
+def load_trained_network(net_creator, checkpoint_path, use_cpu):
+    if use_cpu:
+        #it avoids loading cuda tensors in case a gpu is unavailable
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    else:
+        checkpoint = torch.load(checkpoint_path)
     network = net_creator()
     network.load_state_dict(checkpoint['network_state_dict'])
     return network, checkpoint['last_step']
 
+
 if __name__=='__main__':
+    devices = ['gpu', 'cpu'] if torch.cuda.is_available() else ['cpu']
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('folder', type=str, help="Folder with a trained model.")
     parser.add_argument('-tc', '--test_count', default=1, type=int, help="Number of episodes to test the model", dest="test_count")
     parser.add_argument('-g', '--greedy', action='store_true', help='Determines whether to use a stochastic or deterministic policy')
-    parser.add_argument('-d', '--device', default='gpu', type=str, choices=['gpu', 'cpu'],
+    parser.add_argument('-d', '--device', default=devices[0], type=str, choices=devices,
         help="Device to be used ('cpu' or 'gpu'). Use CUDA_VISIBLE_DEVICES to specify a particular gpu", dest="device")
     parser.add_argument('-v', '--visualize', action='store_true')
     parser.add_argument('--old_preprocessing', action='store_true',
@@ -66,21 +61,18 @@ if __name__=='__main__':
         args.folder, PAACLearner.CHECKPOINT_SUBDIR, PAACLearner.CHECKPOINT_LAST
     )
     net_creator, env_creator = get_network_and_environment_creator(args)
-    network, steps_trained = load_trained_network(net_creator, checkpoint_path)
+    network, steps_trained = load_trained_network(net_creator, checkpoint_path, args.device=='cpu')
     if args.old_preprocessing:
         network._preprocess = old_preprocess_images
     use_rnn = hasattr(network, 'get_initial_state')
 
-    print_dict(vars(args), 'ARGS')
+    print(args_to_str(args), '=='*30, sep='\n')
     print('Model was trained for {} steps'.format(steps_trained))
     if args.visualize:
         num_steps, rewards = evaluate.visual_eval(
-            network, env_creator, args.greedy,
-            use_rnn, args.test_count, verbose=1, delay=args.step_delay)
+            network, env_creator, args.greedy, args.test_count, verbose=1, delay=args.step_delay)
     else:
-        num_steps, rewards = eval_network(
-            network, env_creator, args.test_count,
-            use_rnn, greedy=args.greedy)
+        num_steps, rewards = eval_network(network, env_creator, args.test_count, greedy=args.greedy)
 
     print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
     print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))
