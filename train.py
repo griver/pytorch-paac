@@ -82,7 +82,7 @@ def main(args):
         batch_env.start_workers()
         learner = ParallelActorCritic(network, batch_env, args)
         #learner = PAACLearner(network, batch_env, args)
-        #learner.set_eval_function(eval_network, learner.network, env_creator, 10) # args to eval_network
+        learner.set_eval_function(eval_network, learner.network, env_creator, 10) # args to eval_network
         learner.train()
     finally:
         batch_env.close()
