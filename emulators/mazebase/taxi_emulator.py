@@ -48,7 +48,7 @@ class TaxiEmulator(MazebaseEmulator):
         Performs action.
         Returns the next state, reward, and termination signal
         '''
-        action = self.legal_actions[np.argmax(action)]
+        action = self.legal_actions[action]
         self.game.act(action) # no need for action repetition here
         state, reward, is_done, info = self._observe()
         state = self._merge_observation_with_task_info(state, info)

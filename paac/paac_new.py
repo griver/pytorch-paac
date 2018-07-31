@@ -2,12 +2,11 @@ import copy
 import logging
 import shutil
 import time
-import torch
+import torch as th
 
 import numpy as np
 import torch.nn.functional as F
 from torch import optim, nn
-from torch.autograd import Variable
 
 import utils
 from utils import ensure_dir, join_path, isfile, yellow, red
@@ -17,7 +16,28 @@ from collections import namedtuple
 TrainingStats = namedtuple("TrainingStats",
                            ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
 
-class PAACLearner(object):
+def n_step_returns(next_value, rewards, masks, gamma=0.99):
+    """
+    Computes discounted n-step returns for rollout. Expects tensors or numpy.arrays as input parameters
+    The function doesn't detach tensors, so you have to take care of the gradient flow by yourself.
+    :return:
+    """
+    rollout_steps = len(rewards)
+    returns = [None] * rollout_steps
+    R = next_value
+    for t in reversed(range(rollout_steps)):
+        R = rewards[t] + gamma * masks[t] * R
+        returns[t] = R
+    return returns
+
+
+class ParallelActorCritic(object):
+    """
+    The method is also known as A2C i.e. (Parallel) Advantage Actor Critic.
+    https://blog.openai.com/baselines-acktr-a2c/
+    https://arxiv.org/abs/1705.04862
+    """
+
     CHECKPOINT_SUBDIR = 'checkpoints/'
     SUMMARY_FILE = 'summaries.pkl4' #pickle, protocol=4
     CHECKPOINT_LAST = 'checkpoint_last.pth'
@@ -29,8 +49,7 @@ class PAACLearner(object):
 
     def __init__(self, network, batch_env, args):
         logging.debug('PAAC init is started')
-        self.args = copy.copy(vars(args))
-        self.checkpoint_dir = join_path(self.args['debugging_folder'],self.CHECKPOINT_SUBDIR)
+        self.checkpoint_dir = join_path(args.debugging_folder,self.CHECKPOINT_SUBDIR)
         ensure_dir(self.checkpoint_dir)
 
         checkpoint = self._load_latest_checkpoint(self.checkpoint_dir)
@@ -41,8 +60,8 @@ class PAACLearner(object):
         self.batch_env = batch_env
         self.optimizer = optim.RMSprop(
             self.network.parameters(),
-            lr=self.args['initial_lr'],
-            eps=self.args['e'],
+            lr=args.initial_lr,
+            eps=args.e,
         ) #RMSprop defualts: momentum=0., centered=False, weight_decay=0
 
         if checkpoint:
@@ -52,30 +71,35 @@ class PAACLearner(object):
 
         self.lr_scheduler = LinearAnnealingLR(
             self.optimizer,
-            self.args['lr_annealing_steps']
+            args.lr_annealing_steps
         )
         #pytorch documentation says:
         #In most cases it’s better to use CUDA_VISIBLE_DEVICES environmental variable
         #Therefore to specify a particular gpu one should use CUDA_VISIBLE_DEVICES.
-        self.use_cuda = self.args['device'] == 'gpu'
+        self.device = self.network._device
+        self.use_cuda = args.device == 'cuda'
         self.use_rnn = hasattr(self.network, 'get_initial_state') #get_initial_state should return state of the rnn layers
-        self._tensors = torch.cuda if self.use_cuda else torch
 
-        self.action_codes = np.eye(batch_env.num_actions) #envs reveive actions in one-hot encoding!
-        self.gamma = self.args['gamma'] # future rewards discount factor
-        self.entropy_coef = self.args['entropy_regularisation_strength']
-        self.loss_scaling = self.args['loss_scaling'] #5.
-        self.critic_coef = self.args['critic_coef'] #0.25
+        self.gamma = args.gamma # future rewards discount factor
+        self.entropy_coef = args.entropy_regularisation_strength
+        self.loss_scaling = args.loss_scaling #5.
+        self.critic_coef =  args.critic_coef #0.25
+        self.total_steps = args.max_global_steps
+        self.rollout_steps = args.rollout_steps
+        self.clip_norm = args.clip_norm
+        self.num_emulators = batch_env.num_emulators
+
         self.eval_func = None
-
-        if self.args['clip_norm_type'] == 'global':
+        self.reshape_r = lambda r: np.clip(r, -1.,1.)
+        self.compute_returns = n_step_returns
+        if args.clip_norm_type == 'global':
             self.clip_gradients = nn.utils.clip_grad_norm_
-        elif self.args['clip_norm_type'] == 'local':
+        elif args.clip_norm_type == 'local':
             self.clip_gradients = utils.clip_local_grad_norm
-        elif self.args['clip_norm_type'] == 'ignore':
+        elif args.clip_norm_type == 'ignore':
             self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
         else:
-            raise ValueError('Norm type({}) is not recoginized'.format(self.args['clip_norm_type']))
+            raise ValueError('Norm type({}) is not recoginized'.format(args.clip_norm_type))
         logging.debug('Paac init is done')
 
     def train(self):
@@ -83,54 +107,46 @@ class PAACLearner(object):
         Main actor learner loop for parallerl advantage actor critic learning.
         """
         logging.info('Starting training at step %d' % self.global_step)
-        logging.debug('use_cuda == {}'.format(self.use_cuda))
+        logging.debug('Device: {}'.format(self.device))
 
         counter = 0
         global_step_start = self.global_step
-        average_loss = utils.MovingAverage(0.01, ['total', 'actor', 'critic'])
+        average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
         total_rewards, training_stats = [], []
+        num_emulators = self.batch_env.num_emulators
+        emulator_steps = np.zeros(num_emulators, dtype=int)
+        total_episode_rewards = np.zeros(num_emulators)
 
         if self.eval_func is not None:
             stats = self.evaluate(verbose=True)
             training_stats.append((self.global_step, stats))
 
-        #num_actions = self.args['num_actions']
-        num_emulators = self.args['num_envs']
-        rollout_steps = self.args['rollout_steps']
-        max_global_steps = self.args['max_global_steps']
-        clip_norm = self.args['clip_norm']
-        rollout_steps = num_emulators * rollout_steps
-
         states, infos = self.batch_env.reset_all()
-
-        emulator_steps = np.zeros(num_emulators, dtype=int)
-        total_episode_rewards = np.zeros(num_emulators)
-        not_done_masks = torch.zeros(rollout_steps, num_emulators).type(self._tensors.FloatTensor)
         if self.use_rnn:
-            hx_init, cx_init = self.network.get_initial_state(num_emulators)
-            hx, cx = hx_init, cx_init
+            hx, cx = self.network.get_initial_state(num_emulators)
         else: #for feedforward nets just ignore this argument
             hx, cx = None, None
 
         start_time = time.time()
-        while self.global_step < max_global_steps:
+        while self.global_step < self.total_steps:
             loop_start_time = time.time()
-            values, log_probs, rewards, entropies = [], [], [], []
+            values, log_probs, rewards, entropies, masks = [], [], [], [], []
             if self.use_rnn:
-                hx, cx = hx.detach(), cx.detach() #Do I really need to detach here?
+                hx, cx = hx.detach(), cx.detach()
 
-            for t in range(rollout_steps):
+            for t in range(self.rollout_steps):
                 outputs = self.choose_action(states, infos, (hx,cx))
                 a_t, v_t, log_probs_t, entropy_t, (hx, cx) = outputs
                 states, rs, dones, infos = self.batch_env.next(a_t)
 
-                #actions_sum += a_t
-                rewards.append(np.clip(rs, -1., 1.))
+                tensor_rs = th.from_numpy(self.reshape_r(rs)).to(self.device)
+                rewards.append(tensor_rs)
                 entropies.append(entropy_t)
                 log_probs.append(log_probs_t)
                 values.append(v_t)
-                is_done = torch.from_numpy(dones).type(self._tensors.FloatTensor)
-                not_done_masks[t] = 1.0 - is_done
+
+                mask = 1.0 - th.from_numpy(dones).to(self.device) #dones.dtype == np.float32
+                masks.append(mask) #1.0 if episode is not done, 0.0 otherwise
 
                 done_mask = dones.astype(bool)
                 total_episode_rewards += rs
@@ -139,50 +155,28 @@ class PAACLearner(object):
                 total_rewards.extend(total_episode_rewards[done_mask])
                 total_episode_rewards[done_mask] = 0.
                 emulator_steps[done_mask] = 0
+
                 if self.use_rnn and any(done_mask): # we need to clear all lstm states corresponding to the terminated emulators
-                        done_idx = is_done.nonzero().view(-1)
-                        hx, cx = hx.clone(), cx.clone() #hx_t, cx_t are used for backward op, so we can't modify them in-place
-                        hx[done_idx,:] = hx_init[done_idx, :].detach()
-                        cx[done_idx,:] = cx_init[done_idx,:].detach()
+                    mask = mask.unsqueeze(1)
+                    hx, cx = hx*mask, cx*mask
 
-            self.global_step += rollout_steps
             next_v = self.predict_values(states, infos, (hx,cx))
-            R = next_v.detach().view(-1)
 
-            delta_v = []
-            for t in reversed(range(rollout_steps)):
-                rs = Variable(torch.from_numpy(rewards[t])).type(self._tensors.FloatTensor)
-                not_done_t = Variable(not_done_masks[t])
-                R = rs + self.gamma * R * not_done_t
-                delta_v_t = R - values[t].view(-1)
-                delta_v.append(delta_v_t)
+            update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
+            average_loss.update(**update_stats)
 
-            loss, actor_loss, critic_loss = self.compute_loss(
-                torch.cat(delta_v,0),
-                torch.cat(log_probs,0).view(-1),
-                torch.cat(entropies,0).view(-1)
-            )
-
-            self.lr_scheduler.adjust_learning_rate(self.global_step)
-            self.optimizer.zero_grad()
-            loss.backward()
-            global_norm = self.clip_gradients(self.network.parameters(), clip_norm)
-            self.optimizer.step()
-
-            average_loss.update(total=loss.data.item(),
-                                actor=actor_loss.item(),
-                                critic=critic_loss.item())
-
+            self.global_step += num_emulators * self.rollout_steps
             counter += 1
-            if counter % (self.print_every // rollout_steps) == 0:
+
+            if counter % (self.print_every // (num_emulators*self.rollout_steps)) == 0:
                 curr_time = time.time()
                 self._training_info(
                     total_rewards=total_rewards,
                     average_speed=(self.global_step - global_step_start) / (curr_time - start_time),
-                    loop_speed=rollout_steps / (curr_time - loop_start_time),
-                    moving_averages=average_loss, grad_norms=global_norm)
+                    loop_speed=(num_emulators*self.rollout_steps) / (curr_time - loop_start_time),
+                    update_stats=average_loss)
 
-            if counter % (self.eval_every // rollout_steps) == 0:
+            if counter % (self.eval_every // (num_emulators*self.rollout_steps)) == 0:
                 if (self.eval_func is not None):
                     stats = self.evaluate(verbose=True)
                     training_stats.append((self.global_step, stats))
@@ -197,40 +191,55 @@ class PAACLearner(object):
 
     def choose_action(self, states, infos, rnn_states):
         if self.use_rnn:
-            values, a_logits, rnn_states = self.network(states, infos, rnn_states)
+            values, distr, rnn_states = self.network(states, infos, rnn_states)
         else:
-            values, a_logits = self.network(states, infos) #without rnn_state
+            values, distr = self.network(states, infos)
 
-        probs = F.softmax(a_logits, dim=1)
-        log_probs = F.log_softmax(a_logits, dim=1)
-        entropy = torch.neg((log_probs * probs)).sum(1)
-        acts = probs.multinomial(1).detach()
-        selected_log_probs = log_probs.gather(1, acts)
-
-        check_log_zero(log_probs.data)
-        acts_one_hot = self.action_codes[acts.data.cpu().view(-1).numpy(),:]
-        return acts_one_hot, values, selected_log_probs, entropy, rnn_states
+        acts = distr.sample().detach()
+        log_probs = distr.log_prob(acts)
+        entropy = distr.entropy()
+        return acts, values.squeeze(dim=1), log_probs, entropy, rnn_states
 
     def predict_values(self, states, infos, rnn_states):
         if self.use_rnn:
-            return self.network(states, infos, rnn_states)[0]
-        return self.network(states, infos)[0]
+            values = self.network(states, infos, rnn_states)[0]
+        else:
+            values = self.network(states, infos)[0]
+        return values.squeeze(dim=1)
 
-    def compute_loss(self, delta_v, selected_log_probs, entropies):
-        #delta_v = target_value - v_t which is basicale an advantage_t
-        ##detach() prevents from providing grads from actor_loss to the critic
-        advantages = delta_v.detach()
-        actor_loss = selected_log_probs * advantages + self.entropy_coef * entropies
-        actor_loss = torch.neg(torch.mean(actor_loss, 0)) #-1. * actor_loss
-        critic_loss = self.critic_coef * torch.mean(delta_v.pow(2), 0)
-        loss = self.loss_scaling * (actor_loss + critic_loss)
-        return loss, actor_loss, critic_loss
+    def update_weights(self, next_v, rewards, masks, values, log_probs, entropies):
+        returns = self.compute_returns(next_v.detach(), rewards, masks, self.gamma)
+
+        loss, update_data = self.compute_loss(
+            th.cat(returns), th.cat(values), th.cat(log_probs), th.cat(entropies)
+        )
+
+        self.lr_scheduler.adjust_learning_rate(self.global_step)
+        self.optimizer.zero_grad()
+        loss.backward()
+        global_norm = self.clip_gradients(self.network.parameters(), self.clip_norm)
+        self.optimizer.step()
+
+        update_data['grad_norm'] = global_norm
+        return update_data
+
+    def compute_loss(self, returns, values, log_probs, entropies):
+        advantages = returns - values
+
+        critic_loss = self.critic_coef * advantages.pow(2).mean() #minimize
+        actor_loss = th.neg(log_probs * advantages.detach()).mean() # minimize -log(policy(a))*advantage(s,a)
+        entropy_loss = self.entropy_coef*entropies.mean() # maximize entropy
+
+        loss = self.loss_scaling * (actor_loss + critic_loss - entropy_loss)
+
+        loss_data = {'actor':actor_loss.item(), 'critic':critic_loss.item(), 'entropy':entropy_loss.item()}
+        return loss, loss_data
 
     @classmethod
     def _load_latest_checkpoint(cls, dir):
         last_chkpt_path = join_path(dir, cls.CHECKPOINT_LAST)
         if isfile(last_chkpt_path):
-            return torch.load(last_chkpt_path)
+            return th.load(last_chkpt_path)
         return None
 
     def _save_progress(self, dir, summaries=None, is_best=False):
@@ -240,7 +249,7 @@ class PAACLearner(object):
             'network_state_dict': self.network.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict()
         }
-        torch.save(state, last_chkpt_path)
+        th.save(state, last_chkpt_path)
         logging.info('The state of the agent is saved at step #%d'%self.global_step)
 
         if (summaries is not None) and len(summaries) > 0:
@@ -251,14 +260,13 @@ class PAACLearner(object):
           best_chkpt_path = join_path(dir, self.CHECKPOINT_BEST)
           shutil.copyfile(last_chkpt_path, best_chkpt_path)
 
-    def _training_info(self, total_rewards, average_speed, loop_speed, moving_averages, grad_norms):
+    def _training_info(self, total_rewards, average_speed, loop_speed, update_stats):
         last_ten = np.mean(total_rewards[-10:]) if len(total_rewards) else 0.
-        logger_msg = "Ran {} steps, at {} steps/s ({} steps/s avg), last 10 rewards avg {}"
+        logger_msg = "Ran {} steps, at {} fps (avg {} fps), last 10 rewards avg {}"
 
         lines = ['',]
         lines.append(logger_msg.format(self.global_step, loop_speed, average_speed, last_ten))
-        lines.append(str(moving_averages))
-        lines.append('grad_norm: {}'.format(grad_norms))
+        lines.append(str(update_stats))
         logging.info(yellow('\n'.join(lines)))
 
     def evaluate(self, verbose=True):
@@ -282,13 +290,6 @@ class PAACLearner(object):
         self.eval_func = eval_func
         self.eval_args = args
         self.eval_kwargs = kwargs
-
-
-def check_log_zero(logs_results):
-    #print('log_results:', logs_results, sep='\n')
-    #print('-inf mask:', float('-inf') == logs_results, sep='\n')
-    if any(float('-inf') == logs_results.view(-1)):
-      raise ValueError(' The logarithm of zero is undefined!')
 
 
 def print_grads_norms(net):

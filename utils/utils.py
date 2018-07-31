@@ -104,7 +104,7 @@ def global_norm(tensors, norm_type=2):
 
 
 def global_grad_norm(parameters, norm_type=2):
-    grads = [p.grad.data for p in parameters if p.grad is not None]
+    grads = [p.grad.detach() for p in parameters if p.grad is not None]
     return global_norm(grads, norm_type)
 
 

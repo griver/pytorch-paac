@@ -73,7 +73,7 @@ class BaseBatchEmulator(object):
         _, info = example_em.reset()
 
         input_vars = {
-            'action': np.zeros((num_em, self.num_actions),dtype=np.float32)
+            'action': np.zeros((num_em,),dtype=np.int32) #actions are assumed to be discrete so np.int32
         }
         output_vars = {
             'state':np.zeros((num_em,)+ self.obs_shape, dtype=np.uint8),
@@ -202,7 +202,6 @@ class ConcurrentBatchEmulator(BaseBatchEmulator):
                 worker.join()
             self.is_closed = True
 
-
     def next(self, action):
         """
         Performs given actions on the corresponding emulators i.e. performs action[i] on emulator[i].
@@ -264,7 +263,8 @@ class SequentialBatchEmulator(BaseBatchEmulator):
         :param action: Array of actions. if action space is discrete one-hot encoding is used.
         :return: states, rewards, dones, infos
         """
-        for i, (em, act) in enumerate(zip(self.emulators, action)):
+        self.action[:] = action
+        for i, (em, act) in enumerate(zip(self.emulators, self.action)):
             if not self.completed[i]:
                 new_s, self.reward[i], self.is_done[i], info = em.next(act)
                 if self.is_done[i] and self.auto_reset:

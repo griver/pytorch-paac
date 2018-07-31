@@ -36,7 +36,6 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     terminated = np.full(num_envs, False, dtype=np.bool)
     total_r = np.zeros(num_envs, dtype=np.float32)
     num_steps = np.zeros(num_envs, dtype=np.int64)
-    action_codes = np.eye(batch_emulator.num_actions)
 
     extra_inputs = {'greedy': greedy}
     extra_inputs['net_state'] = network.get_initial_state(num_envs) if use_rnn else None
@@ -45,9 +44,8 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     for t in itertools.count():
         acts, net_state = choose_action(network, states, infos, **extra_inputs)
         extra_inputs['net_state'] = net_state
-        acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(),:]
 
-        states, rewards, is_done, infos =  batch_emulator.next(acts_one_hot)
+        states, rewards, is_done, infos =  batch_emulator.next(acts)
         running = np.logical_not(terminated)
         just_ended = np.logical_and(running, is_done)
         total_r[running] += rewards[running]
@@ -79,7 +77,6 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
     use_rnn = getattr(network, 'get_initial_state')
     episode_rewards = []
     episode_steps = []
-    action_codes = np.eye(env_creator.num_actions)
     logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
 
     def unsqueeze(emulator_outputs):
@@ -101,9 +98,9 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
             for t in itertools.count():
                 acts, net_state = choose_action(network, states, infos, **extra_inputs)
                 extra_inputs['net_state'] = net_state
-                act = acts.data.cpu().view(-1).numpy()[0]
+                act = acts[0].item()
 
-                states, reward, is_done, infos =  unsqueeze(emulator.next(action_codes[act]))
+                states, reward, is_done, infos =  unsqueeze(emulator.next(act))
                 if verbose > 0:
                     print("step#{} a_t={} r_t={}\r".format(t+1, act, reward), end="", flush=True)
                 total_r += reward
@@ -111,7 +108,7 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
                 if is_done: break
 
             if verbose > 0:
-                print('Episode#{} num_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
+                print('Episode#{} total_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
             episode_rewards.append(total_r)
             episode_steps.append(t + 1)
         finally:
@@ -123,13 +120,12 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
 def choose_action(network, states, infos, **kwargs):
     rnn_state = kwargs['net_state']
     if rnn_state is not None:
-        values, a_logits, rnn_state = network(states, infos, rnn_state)
+        values, distr, rnn_state = network(states, infos, rnn_state)
     else:
-        values, a_logits = network(states, infos)
+        values, distr = network(states, infos)
 
-    a_probs = F.softmax(a_logits, dim=1)
     if not kwargs['greedy']:
-        acts = a_probs.multinomial(1)
+        acts = distr.sample()
     else:
-        acts = a_probs.max(1, keepdim=True)[1]
+        acts = distr.probs.argmax(dim=1)
     return acts, rnn_state
