@@ -6,7 +6,7 @@ import torch
 
 from networks import old_preprocess_images
 import utils
-from paac import PAACLearner
+from paac import ParallelActorCritic
 from train import get_environment_creator, create_network, eval_network, evaluate, args_to_str
 
 
@@ -57,7 +57,7 @@ if __name__=='__main__':
     args = fix_args_for_test(args, train_args)
 
     checkpoint_path = utils.join_path(
-        args.folder, PAACLearner.CHECKPOINT_SUBDIR, PAACLearner.CHECKPOINT_LAST
+        args.folder, ParallelActorCritic.CHECKPOINT_SUBDIR, ParallelActorCritic.CHECKPOINT_LAST
     )
     env_creator = get_environment_creator(args)
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
@@ -65,19 +65,20 @@ if __name__=='__main__':
 
     if args.old_preprocessing:
         network._preprocess = old_preprocess_images
-    use_rnn = hasattr(network, 'get_initial_state')
 
     print(args_to_str(args), '=='*30, sep='\n')
     print('Model was trained for {} steps'.format(steps_trained))
-    if args.visualize:
-        num_steps, rewards = evaluate.visual_eval(
-            network, env_creator, args.greedy, args.test_count, verbose=1, delay=args.step_delay)
-    else:
+    if not args.visualize:
         num_steps, rewards = eval_network(network, env_creator, args.test_count, greedy=args.greedy)
+    else:
+        num_steps, rewards = evaluate.visual_eval(
+            network, env_creator, args.greedy,
+            args.test_count, verbose=1, delay=args.step_delay
+        )
+        print('Perfromed {0} tests'.format(args.test_count))
+        print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))
+        print('Mean R: {0:.2f}'.format(np.mean(rewards)), end=' | ')
+        print('Max R: {0:.2f}'.format(np.max(rewards)), end=' | ')
+        print('Min R: {0:.2f}'.format(np.min(rewards)), end=' | ')
+        print('Std of R: {0:.2f}'.format(np.std(rewards)))
 
-    print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
-    print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))
-    print('Mean R: {0:.2f}'.format(np.mean(rewards)), end=' | ')
-    print('Max R: {0:.2f}'.format(np.max(rewards)), end=' | ')
-    print('Min R: {0:.2f}'.format(np.min(rewards)), end=' | ')
-    print('Std of R: {0:.2f}'.format(np.std(rewards)))

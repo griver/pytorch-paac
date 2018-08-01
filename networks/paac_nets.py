@@ -21,7 +21,20 @@ def old_preprocess_images(s_numpy, t_device, t_type=torch.float32):
     return torch.tensor(s_numpy, dtype=t_type, device=t_device)
 
 
-class AtariFF(nn.Module):
+
+class BaseAgentNetwork(object):
+    """
+    It is Easier to treat FeedForward networks the same way as RNN networks, therefore
+    we represent all networks as RNN. So feedforward networks will simply use an empty dict as their RNN state.
+    """
+    def init_rnn_state(self, batch_size):
+        raise NotImplementedError()
+
+    def detach_rnn_state(self, rnn_state):
+        raise NotImplementedError()
+
+
+class AtariFF(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
                  preprocess=preprocess_images):
         super(AtariFF, self).__init__()
@@ -46,7 +59,7 @@ class AtariFF(nn.Module):
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
 
-    def forward(self, states, infos):
+    def forward(self, states, infos, masks, net_state): #i'm here
         states = self._preprocess(states, t_device=self._device)
         x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
@@ -58,7 +71,14 @@ class AtariFF(nn.Module):
         action_logits = self.fc_policy(x)
         state_value = self.fc_value(x)
 
-        return state_value, Categorical(logits=action_logits)
+        return state_value, Categorical(logits=action_logits), {}
+
+    def init_rnn_state(self, batch_size):
+        """See a comment under BaseAgentNetwork"""
+        return {}
+
+    def detach_rnn_state(self, rnn_state):
+        pass
 
 
 class AtariLSTM(nn.Module):
@@ -74,6 +94,7 @@ class AtariLSTM(nn.Module):
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
 
+
     def _create_network(self):
         C,H,W = self._obs_shape
         self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
@@ -86,28 +107,37 @@ class AtariLSTM(nn.Module):
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
 
-    def forward(self, states, infos, rnn_inputs):
+    def forward(self, states, infos, masks, rnn_state):
         states = self._preprocess(states, self._device)
         x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
-        hx, cx = self.lstm(x, rnn_inputs)
+
+        hx, cx = rnn_state['hx']*masks, rnn_state['cx']*masks
+        hx, cx = self.lstm(x, (hx,cx))
+
         logits = self.fc_policy(hx)
         distr = Categorical(logits=logits)
-        return self.fc_value(hx), distr, (hx,cx)
+        return self.fc_value(hx), distr, dict(hx=hx,cx=cx)
 
-    def get_initial_state(self, batch_size):
+    def init_rnn_state(self, batch_size):
         '''
-        Returns initial lstm state as a tuple(hidden_state, cell_state).
+        Returns initial lstm state as a dict(hx=hidden_state, cx=cell_state).
         Intial lstm state is supposed to be used at the begging of an episode.
         '''
         hx = torch.zeros(batch_size, self.lstm.hidden_size, dtype=torch.float32, device=self._device)
         cx = torch.zeros(batch_size, self.lstm.hidden_size, dtype=torch.float32, device=self._device)
-        return hx, cx
+        return dict(hx=hx, cx=cx)
+
+    def detach_rnn_state(self, rnn_state):
+        rnn_state['hx'] = rnn_state['hx'].detach()
+        rnn_state['cx'] = rnn_state['cx'].detach()
+
 
 atari_nets = {
     'lstm': AtariLSTM,
     'ff':AtariFF}
+
 
 class VizdoomLSTM(AtariLSTM):
     def __init__(self, *args, **kwargs):
@@ -128,21 +158,26 @@ class VizdoomLSTM(AtariLSTM):
         self.fc_policy = nn.Linear(hidden_dim, self._num_actions)
         self.fc_value = nn.Linear(hidden_dim, 1)
 
-    def forward(self, states, infos, rnn_inputs):
+    def forward(self, states, infos, masks, rnn_state):
         x = self._preprocess(states, self._device)
         nl = self.nonlinearity
         x = nl(self.conv1(x))
         x = nl(self.conv2(x))
         x = nl(self.conv3(x))
         x = x.view(x.size()[0], -1)
-        hx, cx = self.lstm(x, rnn_inputs)
+
+        hx, cx = rnn_state['hx'] * masks, rnn_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx,cx))
+
         a_logits = self.fc_policy(hx)
-        return self.fc_value(hx), Categorical(logits=a_logits), (hx,cx)
+        return self.fc_value(hx), Categorical(logits=a_logits), dict(hx=hx,cx=cx)
+
 
 vizdoom_nets = {
     'lstm': VizdoomLSTM,
     'selu_lstm': functools.partial(VizdoomLSTM, nonlinearity=F.selu)
 }
+
 
 def init_lstm(module, forget_bias=1.0):
     """

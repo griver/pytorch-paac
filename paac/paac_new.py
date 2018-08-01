@@ -13,8 +13,6 @@ from utils import ensure_dir, join_path, isfile, yellow, red
 from utils.lr_scheduler import LinearAnnealingLR
 from collections import namedtuple
 
-TrainingStats = namedtuple("TrainingStats",
-                           ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
 
 def n_step_returns(next_value, rewards, masks, gamma=0.99):
     """
@@ -77,8 +75,6 @@ class ParallelActorCritic(object):
         #In most cases it’s better to use CUDA_VISIBLE_DEVICES environmental variable
         #Therefore to specify a particular gpu one should use CUDA_VISIBLE_DEVICES.
         self.device = self.network._device
-        self.use_cuda = args.device == 'cuda'
-        self.use_rnn = hasattr(self.network, 'get_initial_state') #get_initial_state should return state of the rnn layers
 
         self.gamma = args.gamma # future rewards discount factor
         self.entropy_coef = args.entropy_regularisation_strength
@@ -89,7 +85,7 @@ class ParallelActorCritic(object):
         self.clip_norm = args.clip_norm
         self.num_emulators = batch_env.num_emulators
 
-        self.eval_func = None
+        self.evaluate = None
         self.reshape_r = lambda r: np.clip(r, -1.,1.)
         self.compute_returns = n_step_returns
         if args.clip_norm_type == 'global':
@@ -114,29 +110,31 @@ class ParallelActorCritic(object):
         average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
         total_rewards, training_stats = [], []
         num_emulators = self.batch_env.num_emulators
-        emulator_steps = np.zeros(num_emulators, dtype=int)
         total_episode_rewards = np.zeros(num_emulators)
 
-        if self.eval_func is not None:
-            stats = self.evaluate(verbose=True)
+        if self.evaluate is not None:
+            stats = self.evaluate(self.network)
             training_stats.append((self.global_step, stats))
 
+        #stores 0.0 in i-th element if the episode in i-th emulator has just started, otherwise stores 1.0
+        #mask is used to cut rnn_state and episode rewards between episodes.
+        mask_t = th.zeros(num_emulators).to(self.device)
+
+        #feedforward networks also use rnn_state, it's just empty!
+        rnn_state = self.network.init_rnn_state(num_emulators)
+
         states, infos = self.batch_env.reset_all()
-        if self.use_rnn:
-            hx, cx = self.network.get_initial_state(num_emulators)
-        else: #for feedforward nets just ignore this argument
-            hx, cx = None, None
 
         start_time = time.time()
         while self.global_step < self.total_steps:
+
             loop_start_time = time.time()
             values, log_probs, rewards, entropies, masks = [], [], [], [], []
-            if self.use_rnn:
-                hx, cx = hx.detach(), cx.detach()
+            self.network.detach_rnn_state(rnn_state)
 
             for t in range(self.rollout_steps):
-                outputs = self.choose_action(states, infos, (hx,cx))
-                a_t, v_t, log_probs_t, entropy_t, (hx, cx) = outputs
+                outputs = self.choose_action(states, infos, mask_t.unsqueeze(1), rnn_state)
+                a_t, v_t, log_probs_t, entropy_t, rnn_state = outputs
                 states, rs, dones, infos = self.batch_env.next(a_t)
 
                 tensor_rs = th.from_numpy(self.reshape_r(rs)).to(self.device)
@@ -145,22 +143,18 @@ class ParallelActorCritic(object):
                 log_probs.append(log_probs_t)
                 values.append(v_t)
 
-                mask = 1.0 - th.from_numpy(dones).to(self.device) #dones.dtype == np.float32
-                masks.append(mask) #1.0 if episode is not done, 0.0 otherwise
+                mask_t = 1.0 - th.from_numpy(dones).to(self.device) #dones.dtype == np.float32
+                masks.append(mask_t) #1.0 if episode is not done, 0.0 otherwise
 
                 done_mask = dones.astype(bool)
                 total_episode_rewards += rs
-                emulator_steps += 1
 
-                total_rewards.extend(total_episode_rewards[done_mask])
-                total_episode_rewards[done_mask] = 0.
-                emulator_steps[done_mask] = 0
+                if any(done_mask):
+                    total_rewards.extend(total_episode_rewards[done_mask])
+                    total_episode_rewards[done_mask] = 0.
 
-                if self.use_rnn and any(done_mask): # we need to clear all lstm states corresponding to the terminated emulators
-                    mask = mask.unsqueeze(1)
-                    hx, cx = hx*mask, cx*mask
 
-            next_v = self.predict_values(states, infos, (hx,cx))
+            next_v = self.predict_values(states, infos, mask_t.unsqueeze(1), rnn_state)
 
             update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
             average_loss.update(**update_stats)
@@ -177,8 +171,8 @@ class ParallelActorCritic(object):
                     update_stats=average_loss)
 
             if counter % (self.eval_every // (num_emulators*self.rollout_steps)) == 0:
-                if (self.eval_func is not None):
-                    stats = self.evaluate(verbose=True)
+                if self.evaluate is not None:
+                    stats = self.evaluate(self.network)
                     training_stats.append((self.global_step, stats))
 
             if self.global_step - self.last_saving_step >= self.save_every:
@@ -189,22 +183,16 @@ class ParallelActorCritic(object):
         self._save_progress(self.checkpoint_dir, is_best=False)
         logging.info('Training ended at step %d' % self.global_step)
 
-    def choose_action(self, states, infos, rnn_states):
-        if self.use_rnn:
-            values, distr, rnn_states = self.network(states, infos, rnn_states)
-        else:
-            values, distr = self.network(states, infos)
 
+    def choose_action(self, states, infos, masks, rnn_states):
+        values, distr, rnn_states = self.network(states, infos, masks, rnn_states)
         acts = distr.sample().detach()
         log_probs = distr.log_prob(acts)
         entropy = distr.entropy()
         return acts, values.squeeze(dim=1), log_probs, entropy, rnn_states
 
-    def predict_values(self, states, infos, rnn_states):
-        if self.use_rnn:
-            values = self.network(states, infos, rnn_states)[0]
-        else:
-            values = self.network(states, infos)[0]
+    def predict_values(self, states, infos, masks, rnn_states):
+        values = self.network(states, infos, masks, rnn_states)[0]
         return values.squeeze(dim=1)
 
     def update_weights(self, next_v, rewards, masks, values, log_probs, entropies):
@@ -262,34 +250,12 @@ class ParallelActorCritic(object):
 
     def _training_info(self, total_rewards, average_speed, loop_speed, update_stats):
         last_ten = np.mean(total_rewards[-10:]) if len(total_rewards) else 0.
-        logger_msg = "Ran {} steps, at {} fps (avg {} fps), last 10 rewards avg {}"
+        logger_msg = "Ran {0} steps, at {1:.3f} fps (avg {2:.3f} fps), last 10 rewards avg {3:.5f}"
 
         lines = ['',]
         lines.append(logger_msg.format(self.global_step, loop_speed, average_speed, last_ten))
         lines.append(str(update_stats))
         logging.info(yellow('\n'.join(lines)))
-
-    def evaluate(self, verbose=True):
-        num_steps, rewards = self.eval_func(*self.eval_args, **self.eval_kwargs)
-
-        mean_steps = np.mean(num_steps)
-        min_r, max_r = np.min(rewards), np.max(rewards)
-        mean_r, std_r = np.mean(rewards), np.std(rewards)
-
-        stats = TrainingStats(mean_r, max_r, min_r, std_r, mean_steps)
-        if verbose:
-            lines = [
-                'Perfromed {0} tests:'.format(len(num_steps)),
-                'Mean number of steps: {0:.3f}'.format(mean_steps),
-                'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r)]
-            logging.info(red('\n'.join(lines)))
-
-        return stats
-
-    def set_eval_function(self, eval_func, *args, **kwargs):
-        self.eval_func = eval_func
-        self.eval_args = args
-        self.eval_kwargs = kwargs
 
 
 def print_grads_norms(net):

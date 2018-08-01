@@ -9,9 +9,11 @@ from emulators import VizdoomGamesCreator, AtariGamesCreator
 import utils
 import utils.evaluate as evaluate
 from networks import vizdoom_nets, atari_nets
-from paac import PAACLearner, ParallelActorCritic
+from paac import ParallelActorCritic
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
+import numpy as np
+from collections import namedtuple
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 FF_HISTORY_WINDOW=4
@@ -30,8 +32,8 @@ def args_to_str(args):
 
 exit_handler = None
 def set_exit_handler(new_handler_func=None):
-    #for some reason a creation of Vizdoom game(which starts a new subprocess) drops all previously set singal handlers.
-    #therefore we reset handler_func right new games creation, which apparently happens only in the eval_network and main
+    #for some reason a creation of ViZDoom game(which starts a new subprocess) drops all previously set singal handlers.
+    #therefore we reset handler_func right after the new game creation, which apparently happens only in the eval_network and main
     global exit_handler
     if new_handler_func is not None:
         exit_handler = new_handler_func
@@ -55,14 +57,26 @@ def concurrent_emulator_handler(batch_env):
     return signal_handler
 
 
+TrainingStats = namedtuple("TrainingStats", ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
+
+
 def eval_network(network, env_creator, num_episodes, greedy=False):
     emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
-
     try:
-        stats = evaluate.stats_eval(network, emulator, greedy=greedy)
+        num_steps, rewards = evaluate.stats_eval(network, emulator, greedy=greedy)
     finally:
         emulator.close()
         set_exit_handler()
+
+    mean_steps = np.mean(num_steps)
+    min_r, max_r = np.min(rewards), np.max(rewards)
+    mean_r, std_r = np.mean(rewards), np.std(rewards)
+
+    stats = TrainingStats(mean_r, max_r, min_r, std_r, mean_steps)
+    lines = ['Perfromed {0} tests:'.format(len(num_steps)),
+             'Mean number of steps: {0:.3f}'.format(mean_steps),
+             'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r)]
+    logging.info(utils.red('\n'.join(lines)))
 
     return stats
 
@@ -81,8 +95,8 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = ParallelActorCritic(network, batch_env, args)
-        #learner = PAACLearner(network, batch_env, args)
-        learner.set_eval_function(eval_network, learner.network, env_creator, 10) # args to eval_network
+        # evaluation results are saved as summaries of the training process:
+        learner.evaluate = lambda network: eval_network(network, env_creator, 10)
         learner.train()
     finally:
         batch_env.close()
@@ -161,7 +175,6 @@ def add_paac_args(parser, framework):
                         help='Weight of the critic loss in the total loss'+show_default)
 
 
-
 def get_arg_parser():
     parser = argparse.ArgumentParser()
     framework_parser = parser.add_subparsers(
@@ -184,8 +197,8 @@ def get_arg_parser():
 
 if __name__ == '__main__':
     args = get_arg_parser().parse_args()
-    #if the specified architecture is a feedforward network then we use history window:
+    # if the specified architecture is a feedforward network then we use history window:
     args.history_window = FF_HISTORY_WINDOW if args.arch.endswith('ff') else LSTM_HISTORY_WINDOW
     args.random_seed = 3
-    torch.set_num_threads(1) #sometimes pytorch works faster with this setting(from ~1400fps on my laptop to 1500fps)
+    torch.set_num_threads(1) # sometimes pytorch works faster with this setting(from ~1300fps to 1500fps on ALE)
     main(args)
