@@ -153,7 +153,6 @@ class ParallelActorCritic(object):
                     total_rewards.extend(total_episode_rewards[done_mask])
                     total_episode_rewards[done_mask] = 0.
 
-
             next_v = self.predict_values(states, infos, mask_t.unsqueeze(1), rnn_state)
 
             update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
@@ -182,7 +181,6 @@ class ParallelActorCritic(object):
 
         self._save_progress(self.checkpoint_dir, is_best=False)
         logging.info('Training ended at step %d' % self.global_step)
-
 
     def choose_action(self, states, infos, masks, rnn_states):
         values, distr, rnn_states = self.network(states, infos, masks, rnn_states)
@@ -249,8 +247,8 @@ class ParallelActorCritic(object):
           shutil.copyfile(last_chkpt_path, best_chkpt_path)
 
     def _training_info(self, total_rewards, average_speed, loop_speed, update_stats):
-        last_ten = np.mean(total_rewards[-10:]) if len(total_rewards) else 0.
-        logger_msg = "Ran {0} steps, at {1:.3f} fps (avg {2:.3f} fps), last 10 rewards avg {3:.5f}"
+        last_ten = np.mean(total_rewards[-20:]) if len(total_rewards) else 0.
+        logger_msg = "Ran {0} steps, at {1:.3f} fps (avg {2:.3f} fps), last 20 episodes avg {3:.5f}"
 
         lines = ['',]
         lines.append(logger_msg.format(self.global_step, loop_speed, average_speed, last_ten))

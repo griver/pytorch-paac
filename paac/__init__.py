@@ -1,1 +1,1 @@
-from .paac_new import ParallelActorCritic
+from .paac import ParallelActorCritic

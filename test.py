@@ -69,7 +69,8 @@ if __name__=='__main__':
     print(args_to_str(args), '=='*30, sep='\n')
     print('Model was trained for {} steps'.format(steps_trained))
     if not args.visualize:
-        num_steps, rewards = eval_network(network, env_creator, args.test_count, greedy=args.greedy)
+        #eval_network prints stats by itself
+        eval_network(network, env_creator, args.test_count, greedy=args.greedy)
     else:
         num_steps, rewards = evaluate.visual_eval(
             network, env_creator, args.greedy,

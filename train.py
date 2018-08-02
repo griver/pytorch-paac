@@ -60,7 +60,7 @@ def concurrent_emulator_handler(batch_env):
 TrainingStats = namedtuple("TrainingStats", ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
 
 
-def eval_network(network, env_creator, num_episodes, greedy=False):
+def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True):
     emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
     try:
         num_steps, rewards = evaluate.stats_eval(network, emulator, greedy=greedy)
@@ -73,10 +73,11 @@ def eval_network(network, env_creator, num_episodes, greedy=False):
     mean_r, std_r = np.mean(rewards), np.std(rewards)
 
     stats = TrainingStats(mean_r, max_r, min_r, std_r, mean_steps)
-    lines = ['Perfromed {0} tests:'.format(len(num_steps)),
-             'Mean number of steps: {0:.3f}'.format(mean_steps),
-             'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r)]
-    logging.info(utils.red('\n'.join(lines)))
+    if verbose:
+        lines = ['Perfromed {0} tests:'.format(len(num_steps)),
+                 'Mean number of steps: {0:.3f}'.format(mean_steps),
+                 'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r)]
+        logging.info(utils.red('\n'.join(lines)))
 
     return stats
 

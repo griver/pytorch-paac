@@ -94,6 +94,7 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
         try:
             mask = torch.zeros(1).to(device)
             rnn_state = network.init_rnn_state(1)
+
             states, infos = unsqueeze(emulator.reset())
             total_r = 0
 
@@ -101,7 +102,7 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
                 acts, rnn_state = choose_action(network, states, infos, mask, rnn_state, greedy)
                 act = acts[0].item()
 
-                states, reward, is_done, infos =  unsqueeze(emulator.next(act))
+                states, reward, is_done, infos = unsqueeze(emulator.next(act))
                 mask[0] = 1. - is_done
                 if verbose > 0:
                     print("step#{} a_t={} r_t={}\r".format(t+1, act, reward), end="", flush=True)

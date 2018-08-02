@@ -124,7 +124,7 @@ class MovingAverage(object):
     def __str__(self):
         l = ['MovingAverage:']
         for k, v in self.avr_dict.items():
-            l.append('{}={}'.format(k,v))
+            l.append('{}={:.6f}'.format(k,v))
         return ' '.join(l)
 
 

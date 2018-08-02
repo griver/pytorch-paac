@@ -27,7 +27,7 @@ class BaseAgentNetwork(object):
     It is Easier to treat FeedForward networks the same way as RNN networks, therefore
     we represent all networks as RNN. So feedforward networks will simply use an empty dict as their RNN state.
     """
-    def init_rnn_state(self, batch_size):
+    def init_rnn_state(self, batch_size=None):
         raise NotImplementedError()
 
     def detach_rnn_state(self, rnn_state):
@@ -73,8 +73,8 @@ class AtariFF(nn.Module, BaseAgentNetwork):
 
         return state_value, Categorical(logits=action_logits), {}
 
-    def init_rnn_state(self, batch_size):
-        """See a comment under BaseAgentNetwork"""
+    def init_rnn_state(self, batch_size=None):
+        """See the comment under BaseAgentNetwork"""
         return {}
 
     def detach_rnn_state(self, rnn_state):
@@ -120,13 +120,15 @@ class AtariLSTM(nn.Module):
         distr = Categorical(logits=logits)
         return self.fc_value(hx), distr, dict(hx=hx,cx=cx)
 
-    def init_rnn_state(self, batch_size):
+    def init_rnn_state(self, batch_size=None):
         '''
         Returns initial lstm state as a dict(hx=hidden_state, cx=cell_state).
         Intial lstm state is supposed to be used at the begging of an episode.
         '''
-        hx = torch.zeros(batch_size, self.lstm.hidden_size, dtype=torch.float32, device=self._device)
-        cx = torch.zeros(batch_size, self.lstm.hidden_size, dtype=torch.float32, device=self._device)
+
+        shape = (batch_size, self.lstm.hidden_size) if batch_size else (self.lstm.hidden_size,)
+        hx = torch.zeros(*shape, dtype=torch.float32, device=self._device)
+        cx = torch.zeros(*shape, dtype=torch.float32, device=self._device)
         return dict(hx=hx, cx=cx)
 
     def detach_rnn_state(self, rnn_state):
