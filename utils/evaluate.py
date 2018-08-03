@@ -17,8 +17,7 @@ def model_evaluation(eval_function):
     return wrapper
 
 @model_evaluation
-def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
-               num_episodes=None):
+def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     """
     Runs play with the network for num_episodes episodes.
     Returns:
@@ -30,24 +29,24 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
     auto_reset = getattr(batch_emulator, 'auto_reset', True)
     num_envs = batch_emulator.num_emulators
     num_episodes = num_episodes if num_episodes else num_envs
-    logging.info('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
 
     episode_rewards, episode_steps = [], []
     terminated = np.full(num_envs, False, dtype=np.bool)
     total_r = np.zeros(num_envs, dtype=np.float32)
     num_steps = np.zeros(num_envs, dtype=np.int64)
-    action_codes = np.eye(batch_emulator.num_actions)
+    device = network._device
 
-    extra_inputs = {'greedy': greedy}
-    extra_inputs['net_state'] = network.get_initial_state(num_envs) if is_recurrent else None
+    rnn_state = network.init_rnn_state(num_envs)
+    mask = torch.zeros(num_envs,1).to(device)
     states, infos = batch_emulator.reset_all()
 
     for t in itertools.count():
-        acts, net_state = choose_action(network, states, infos, **extra_inputs)
-        extra_inputs['net_state'] = net_state
-        acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(),:]
+        acts, rnn_state = choose_action(network, states, infos, mask, rnn_state, greedy)
 
-        states, rewards, is_done, infos =  batch_emulator.next(acts_one_hot)
+        states, rewards, is_done, infos =  batch_emulator.next(acts)
+        mask[:,0] = torch.from_numpy(1.-is_done).to(device) #mask isn't used anywhere else, thus we can just rewrite it.
+
         running = np.logical_not(terminated)
         just_ended = np.logical_and(running, is_done)
         total_r[running] += rewards[running]
@@ -56,11 +55,6 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
         episode_steps.extend(num_steps[just_ended])
         total_r[just_ended] = 0
         num_steps[just_ended] = 0
-        #if any(just_ended):
-        #    print('New env ended:', terminated)
-
-        #if t % 400 == 0:
-        #    print('step #{}'.format(t))
 
         if len(episode_rewards) >= num_episodes: break
         if not auto_reset:
@@ -73,19 +67,18 @@ def stats_eval(network, batch_emulator, greedy=False, is_recurrent=False,
 
 
 @model_evaluation
-def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
-               num_episodes=1, verbose=0, delay=0.05):
+def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, delay=0.05):
     """
-    Runs play with the network for num_episodes episodes on a single environment.
+    Plays for num_episodes episodes on a single environment.
     Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
     Returns:
          A list that stores total reward from each episode
          A list that stores length of each episode
     """
-    logging.info('Evaluate stochasitc policy' if not greedy else 'Evaluate deterministic policy')
     episode_rewards = []
     episode_steps = []
-    action_codes = np.eye(env_creator.num_actions)
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
+    device = network._device
 
     def unsqueeze(emulator_outputs):
         outputs = list(emulator_outputs)
@@ -96,19 +89,21 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
             outputs[-1] = {k:v[np.newaxis] for k, v in info.items()}
         return outputs
 
-    extra_inputs = {'greedy': greedy}
     for episode in range(num_episodes):
         emulator = env_creator.create_environment(np.random.randint(100,1000)+episode)
         try:
-            extra_inputs['net_state'] = network.get_initial_state(1) if is_recurrent else None
+            mask = torch.zeros(1).to(device)
+            rnn_state = network.init_rnn_state(1)
+
             states, infos = unsqueeze(emulator.reset())
             total_r = 0
-            for t in itertools.count():
-                acts, net_state = choose_action(network, states, infos, **extra_inputs)
-                extra_inputs['net_state'] = net_state
-                act = acts.data.cpu().view(-1).numpy()[0]
 
-                states, reward, is_done, infos =  unsqueeze(emulator.next(action_codes[act]))
+            for t in itertools.count():
+                acts, rnn_state = choose_action(network, states, infos, mask, rnn_state, greedy)
+                act = acts[0].item()
+
+                states, reward, is_done, infos = unsqueeze(emulator.next(act))
+                mask[0] = 1. - is_done
                 if verbose > 0:
                     print("step#{} a_t={} r_t={}\r".format(t+1, act, reward), end="", flush=True)
                 total_r += reward
@@ -116,7 +111,7 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
                 if is_done: break
 
             if verbose > 0:
-                print('Episode#{} num_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
+                print('Episode#{} total_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
             episode_rewards.append(total_r)
             episode_steps.append(t + 1)
         finally:
@@ -125,16 +120,7 @@ def visual_eval(network, env_creator, greedy=False, is_recurrent=False,
     return episode_steps, episode_rewards
 
 
-def choose_action(network, states, infos, **kwargs):
-    rnn_state = kwargs['net_state']
-    if rnn_state is not None:
-        values, a_logits, rnn_state = network(states, infos, rnn_state)
-    else:
-        values, a_logits = network(states, infos)
-
-    a_probs = F.softmax(a_logits, dim=1)
-    if not kwargs['greedy']:
-        acts = a_probs.multinomial(1)
-    else:
-        acts = a_probs.max(1, keepdim=True)[1]
+def choose_action(network, states, infos, masks, rnn_state, greedy=False):
+    values, distr, rnn_state = network(states, infos, masks, rnn_state)
+    acts = distr.probs.argmax(dim=1) if greedy else distr.sample()
     return acts, rnn_state
