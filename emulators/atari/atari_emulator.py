@@ -15,6 +15,28 @@ FRAMES_IN_POOL = 2
 
 ATARY_GAMES = None #check all roms
 
+ACTION_MEANING = {
+    0 : "NOOP",
+    1 : "FIRE",
+    2 : "UP",
+    3 : "RIGHT",
+    4 : "LEFT",
+    5 : "DOWN",
+    6 : "UPRIGHT",
+    7 : "UPLEFT",
+    8 : "DOWNRIGHT",
+    9 : "DOWNLEFT",
+    10 : "UPFIRE",
+    11 : "RIGHTFIRE",
+    12 : "LEFTFIRE",
+    13 : "DOWNFIRE",
+    14 : "UPRIGHTFIRE",
+    15 : "UPLEFTFIRE",
+    16 : "DOWNRIGHTFIRE",
+    17 : "DOWNLEFTFIRE",
+}
+
+
 class FramePreprocessor(object):
     """
     Processes several consecutive atari frames.
@@ -35,7 +57,7 @@ class FramePreprocessor(object):
         self.frame_pool_index = (self.frame_pool_index + 1) % self.frames_in_pool
 
     def get_processed(self):
-        img = np.amax(self.frame_pool, axis=0) #max-pooling across last 'frame_pool_size' time-steps
+        img = np.max(self.frame_pool, axis=0) #max-pooling across last 'frame_pool_size' time-steps
         img = cv2.resize(img, (84, 84), interpolation=cv2.INTER_AREA)
         img = self.reshape(img.astype(np.uint8))
         return img
@@ -61,6 +83,8 @@ class AtariEmulator(BaseEnvironment):
         full_rom_path = resource_folder + "/" + game + ".bin"
         self.ale.loadROM(str.encode(full_rom_path))
         self.legal_actions = self.ale.getMinimalActionSet()
+        #this env is fixed until firing, so you have to...
+        self._have_to_fire = ('FIRE' in [ACTION_MEANING[a] for a in self.legal_actions])
         self.screen_width, self.screen_height = self.ale.getScreenDims()
         self.lives = self.ale.lives()
 
@@ -93,14 +117,32 @@ class AtariEmulator(BaseEnvironment):
     def on_new_frame(self, frame):
         pass
 
-    def __new_game(self):
+    def __random_start_reset(self):
         """ Restart game """
         self.ale.reset_game()
-        self.lives = self.ale.lives()
+
         if self.random_start:
-            wait = random.randint(0, MAX_START_WAIT)
+            wait = random.randint(0, MAX_START_WAIT+1)
             for _ in range(wait):
                 self.ale.act(self.get_noop())
+                if self.__is_over():
+                    self.ale.reset_game()
+
+        self.lives = self.ale.lives()
+
+    def __new_game(self):
+        self.__random_start_reset()
+
+        if self._have_to_fire:
+            #take action on reset for environments that are fixed until firing
+            self.ale.act(self.legal_actions[1])
+            if self.__is_over():
+                self.__random_start_reset()
+
+            self.ale.act(self.legal_actions[2])
+            if self.__is_over():
+                self.__random_start_reset()
+            self.lives = self.ale.lives()
 
 
     def __action_repeat(self, a, times=ACTION_REPEAT):
@@ -126,7 +168,7 @@ class AtariEmulator(BaseEnvironment):
 
     def next(self, action):
         """ Get the next state, reward, and game over signal """
-        reward = self.__action_repeat(np.argmax(action))
+        reward = self.__action_repeat(action)
         self.history.new_observation(self.frame_preprocessor.get_processed())
         terminal = self.__is_terminal()
         self.lives = self.ale.lives()

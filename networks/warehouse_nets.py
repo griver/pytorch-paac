@@ -1,5 +1,5 @@
-from .default_nets import torch, nn, F, Variable
-from .default_nets import calc_output_shape, AtariLSTM
+from .paac_nets import torch, nn, F, Variable
+from .paac_nets import calc_output_shape, AtariLSTM
 import numpy as np
 
 def preprocess_warehouse(obs, infos, t_types):

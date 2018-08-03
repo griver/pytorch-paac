@@ -101,7 +101,7 @@ class VizdoomEmulator(BaseEnvironment):
         """
         reward = 0.
         if not self.game.is_episode_finished():
-            action = self.legal_actions[np.argmax(action)]
+            action = self.legal_actions[action]
             reward = self.game.make_action(action, self.action_repeat)
             reward = reward*self.reward_coef
         is_done = self.game.is_episode_finished()

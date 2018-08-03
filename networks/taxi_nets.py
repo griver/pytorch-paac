@@ -1,4 +1,4 @@
-from .default_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
+from .paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
 
 def preprocess_taxi_input(obs, tasks_ids, Ttypes):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
