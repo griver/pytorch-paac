@@ -81,7 +81,7 @@ class AtariFF(nn.Module, BaseAgentNetwork):
         pass
 
 
-class AtariLSTM(nn.Module):
+class AtariLSTM(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
                  preprocess=preprocess_images):
         super(AtariLSTM, self).__init__()
@@ -107,13 +107,13 @@ class AtariLSTM(nn.Module):
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
 
-    def forward(self, states, infos, masks, rnn_state):
+    def forward(self, states, infos, masks, net_state):
         states = self._preprocess(states, self._device)
         x = F.relu(self.conv1(states))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
 
-        hx, cx = rnn_state['hx']*masks, rnn_state['cx']*masks
+        hx, cx = net_state['hx']*masks, net_state['cx']*masks
         hx, cx = self.lstm(x, (hx,cx))
 
         logits = self.fc_policy(hx)

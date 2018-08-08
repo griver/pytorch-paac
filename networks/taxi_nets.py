@@ -1,19 +1,20 @@
-from .paac_nets import torch, nn, F, Variable, np, init_model_weights, calc_output_shape
+from .paac_nets import torch, nn, F, np, init_model_weights, calc_output_shape
+from .paac_nets import Categorical, BaseAgentNetwork
 
-def preprocess_taxi_input(obs, tasks_ids, Ttypes):
+def preprocess_taxi_input(obs, tasks_ids, t_device):
     obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
-    obs = Variable(obs).type(Ttypes.FloatTensor)
-    tasks_ids = Variable(Ttypes.LongTensor(tasks_ids.tolist()))
+    obs = torch.tensor(obs, device=t_device, dtype=torch.float32)
+    tasks_ids = torch.tensor(tasks_ids.tolist(), device=t_device, dtype=torch.long)
     return obs, tasks_ids
 
 
-class MultiTaskFFNetwork(nn.Module):
+class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
-    def __init__(self, num_actions, observation_shape, input_types,
+    def __init__(self, num_actions, observation_shape, device,
                  num_tasks=5, task_embed_dim=32, preprocess=None):
         super(MultiTaskFFNetwork, self).__init__()
         self._num_actions = num_actions
-        self._intypes = input_types
+        self._device = device
         self._obs_shape = observation_shape
         self._task_embed_dim = task_embed_dim
         self._num_tasks = num_tasks
@@ -36,9 +37,8 @@ class MultiTaskFFNetwork(nn.Module):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
 
-    def forward(self, obs, infos):
-        task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, infos, self._intypes)
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
         #conv
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -48,11 +48,13 @@ class MultiTaskFFNetwork(nn.Module):
         x = torch.cat((x, task_vecs), 1)
         #fc3(conv(obs) + embed(tasks))
         x = F.relu(self.fc3(x))
+
         action_logits = self.fc_policy(x)
+        action_distr = Categorical(logits=action_logits)
         state_value = self.fc_value(x)
         terminal_logits = self.fc_terminal(x)
 
-        return state_value, action_logits, terminal_logits
+        return state_value, action_distr, terminal_logits, {}
 
     def terminal_prediction_params(self):
         for name, param in self.named_parameters():
@@ -65,12 +67,12 @@ class MultiTaskFFNetwork(nn.Module):
                 yield param
 
 
-class MultiTaskLSTMNetwork(nn.Module):
-    def __init__(self, num_actions, observation_shape, input_types,
+class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
+    def __init__(self, num_actions, observation_shape, device,
                  num_tasks=5, task_embed_dim=32, preprocess=None):
         super(MultiTaskLSTMNetwork, self).__init__()
         self._num_actions = num_actions
-        self._intypes = input_types
+        self._device = device
         self._obs_shape = observation_shape
         self._task_embed_dim = task_embed_dim
         self._num_tasks = num_tasks
@@ -93,9 +95,8 @@ class MultiTaskLSTMNetwork(nn.Module):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
 
-    def forward(self, obs, infos, rnn_state):
-        task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
         #obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -104,16 +105,29 @@ class MultiTaskLSTMNetwork(nn.Module):
         task_ids = self.embed1(task_ids)
         x = torch.cat((x, task_ids), 1)
         #lstm and last layers:
-        hx, cx = self.lstm(x, rnn_state)
-        state_value = self.fc_value(hx)
-        action_logits = self.fc_policy(hx)
-        terminal_logits = self.fc_terminal(hx)
-        return state_value, action_logits, terminal_logits, (hx,cx)
+        hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx,cx))
 
-    def get_initial_state(self, batch_size):
-        hx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._intypes.FloatTensor)
-        cx = torch.zeros(batch_size, self.lstm.hidden_size).type(self._intypes.FloatTensor)
-        return Variable(hx), Variable(cx)
+        state_value = self.fc_value(hx)
+        act_logits = self.fc_policy(hx)
+        act_distr = Categorical(logits=act_logits)
+        terminal_logits = self.fc_terminal(hx)
+
+        return state_value, act_distr, terminal_logits, dict(hx=hx,cx=cx)
+
+    def init_rnn_state(self, batch_size=None):
+        '''
+        Returns initial lstm state as a dict(hx=hidden_state, cx=cell_state).
+        Intial lstm state is supposed to be used at the begging of an episode.
+        '''
+        shape = (batch_size, self.lstm.hidden_size) if batch_size else (self.lstm.hidden_size,)
+        hx = torch.zeros(*shape, dtype=torch.float32, device=self._device)
+        cx = torch.zeros(*shape, dtype=torch.float32, device=self._device)
+        return dict(hx=hx, cx=cx)
+
+    def detach_rnn_state(self, rnn_state):
+        rnn_state['hx'] = rnn_state['hx'].detach()
+        rnn_state['cx'] = rnn_state['cx'].detach()
 
     def terminal_prediction_params(self):
         for name, param in self.named_parameters():
@@ -140,19 +154,22 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2)
 
-    def forward(self, obs, infos, rnn_state):
-        task_ids = infos['task_id']
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         # lstm and last layers:
-        hx, cx = self.lstm(x, rnn_state)
+        hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx, cx))
+
         state_value = self.fc_value(hx)
         action_logits = self.fc_policy(hx)
+        action_distr = Categorical(logits=action_logits)
         terminal_logits = self.fc_terminal(hx)
-        return state_value, action_logits, terminal_logits, (hx, cx)
+
+        return state_value, action_distr, terminal_logits, dict(hx=hx, cx=cx)
 
 
 class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
@@ -171,8 +188,8 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         self.fc_terminal1 = nn.Linear(conv_and_embed_dim, 256)
         self.fc_terminal2 = nn.Linear(256 + self._num_actions, 2)
 
-    def forward(self, obs, task_ids, rnn_state):
-        obs, task_ids = self._preprocess(obs, task_ids, self._intypes)
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -181,15 +198,18 @@ class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
         task_ids = self.embed1(task_ids)
         x = torch.cat((x, task_ids), 1)
         #lstm and actor-critic outputs:
-        hx, cx = self.lstm(x, rnn_state)
+        hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx, cx))
+
         state_value = self.fc_value(hx)
-        action_logits = self.fc_policy(hx)
+        act_logits = self.fc_policy(hx)
+        act_distr = Categorical(logits=act_logits)
         #termination prediction classifier:
         t = F.relu(self.fc_terminal1(x))
-        t = torch.cat((t, action_logits.detach()), 1)
+        t = torch.cat((t, act_logits.detach()), 1)
         termination_logits = self.fc_terminal2(t)
 
-        return state_value, action_logits, termination_logits, (hx, cx)
+        return state_value, act_distr, termination_logits, dict(hx=hx, cx=cx)
 
 
 taxi_nets = {

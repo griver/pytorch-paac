@@ -1,6 +1,6 @@
 import logging
 import time
-import torch
+import torch as th
 
 import numpy as np
 import torch.nn.functional as F
@@ -10,138 +10,102 @@ from torch.autograd import Variable
 import utils
 from utils import red
 from collections import namedtuple
-from paac.paac import PAACLearner, check_log_zero
+from ..paac import ParallelActorCritic
 
 TrainingStats = namedtuple("TrainingStats",
                                ['mean_r', 'max_r', 'min_r', 'std_r',
                                 'mean_steps', 'term_acc', 'term_rec',
                                 'term_prec', 't_ratio', 'p_ratio'])
 
-class MultiTaskPAAC(PAACLearner):
+class MultiTaskPAAC(ParallelActorCritic):
 
-    def __init__(self, network_creator, batch_env, args):
-        super(MultiTaskPAAC, self).__init__(network_creator, batch_env, args)
+    def __init__(self, network, batch_env, args):
+        super(MultiTaskPAAC, self).__init__(network, batch_env, args)
         self._term_model_coef = args.termination_model_coef
         logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
-        self._term_model_loss = nn.NLLLoss(weight=torch.FloatTensor(args.term_weights))
-        if self.use_cuda:
-            self._term_model_loss = self._term_model_loss.cuda()
+        class_weights = th.tensor(args.term_weights).to(self.device, th.float32)
+        self._term_model_loss = nn.NLLLoss(weight=class_weights).to(self.device)
+
 
     def train(self):
         """
          Main actor learner loop for parallerl advantage actor critic learning.
          """
         logging.info('Starting training at step %d' % self.global_step)
-        logging.debug('use_cuda == {}'.format(self.use_cuda))
+        logging.debug('Device: {}'.format(self.device))
 
-        counter = 0
+        num_updates = 0
         global_step_start = self.global_step
-        ma_loss = utils.MovingAverage(0.01, ['total', 'actor', 'critic', 'term_model'])
+        average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'term_model', 'grad_norm'])
         total_rewards, training_stats = [], []
+        num_emulators = self.batch_env.num_emulators
+        steps_per_update = num_emulators * self.rollout_steps
+        total_episode_rewards = np.zeros(num_emulators)
+        best_mean_r = float('-inf')
 
-        if self.eval_func is not None:
-            stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
+        if self.evaluate:
+            stats = self.evaluate(self.network)
             training_stats.append((self.global_step, stats))
             curr_mean_r = best_mean_r = stats.mean_r
 
-
-        num_emulators = self.args['num_envs']
-        max_local_steps = self.args['max_local_steps']
-        max_global_steps = self.args['max_global_steps']
-        clip_norm = self.args['clip_norm']
-        rollout_steps = num_emulators * max_local_steps
-
-        # any summaries here?
-        emulator_steps = np.zeros(num_emulators, dtype=int)
-        total_episode_rewards = np.zeros(num_emulators)
-        not_done_masks = torch.zeros(max_local_steps, num_emulators).type(self._tensors.FloatTensor)
-        tasks = np.zeros((max_local_steps+1, num_emulators))
-
-        hx, cx = None, None #for feedforward nets just ignore this argument
-        if self.use_rnn:
-            hx_init, cx_init = self.network.get_initial_state(num_emulators)
-            hx, cx = hx_init, cx_init
-
+        #stores 0.0 in i-th element if the episode in i-th emulator has just started, otherwise stores 1.0
+        mask_t = th.zeros(num_emulators).to(self.device)
+        tasks = np.zeros((self.rollout_steps+1, num_emulators)).to(self.device)
+        #feedforward networks also use rnn_state, it's just empty!
+        rnn_state = self.network.init_rnn_state(num_emulators)
         states, infos = self.batch_env.reset_all()
-        start_time = time.time()
-        while self.global_step < max_global_steps:
-            loop_start_time = time.time()
-            values, log_probs, rewards, entropies, log_terminals = [], [], [], [], []
-            if self.use_rnn: hx, cx = hx.detach(), cx.detach()  # Do I really need to detach here?
 
-            for t in range(max_local_steps):
+        start_time = time.time()
+        while self.global_step < self.total_steps:
+
+            loop_start_time = time.time()
+            values, log_probs, rewards, entropies, log_terminals, masks = [],[],[],[],[],[]
+            self.network.detach_rnn_state(rnn_state)
+
+            for t in range(self.rollout_steps):
                 #don't know but probably we need only task values at step t+1
-                # i.e thr values needed for prediction)
+                # i.e the values needed for prediction)
                 # and not the values used as input...
                 tasks[t] = infos['task_status']
-                outputs = self.choose_action(states, infos, (hx, cx))
-                a_t, v_t, log_probs_t, entropy_t, log_term_t, (hx, cx) = outputs
+                outputs = self.choose_action(states, infos, mask_t.unsqueeze(1), rnn_state)
+                a_t, v_t, log_probs_t, entropy_t, log_term_t, rnn_state = outputs
                 states, rs, dones, infos = self.batch_env.next(a_t)
-                #print('=======================')
+
+                tensor_rs = th.from_numpy(self.reshape_r(rs)).to(self.device)
+                rewards.append(tensor_rs)
                 log_terminals.append(log_term_t)
-                rewards.append(self.adjust_rewards(rs))
                 entropies.append(entropy_t)
                 log_probs.append(log_probs_t)
                 values.append(v_t)
-                is_done = torch.from_numpy(dones).type(self._tensors.FloatTensor)
-                not_done_masks[t] = 1.0 - is_done
+
+                mask_t = 1.0 - th.from_numpy(dones).to(self.device)
+                masks.append(mask_t) #1.0 if episode is not done, 0.0 otherwise
 
                 done_mask = dones.astype(bool)
                 total_episode_rewards += rs
-                emulator_steps += 1
+                if any(done_mask):
+                    total_rewards.extend(total_episode_rewards[done_mask])
+                    total_episode_rewards[done_mask] = 0.
 
-                total_rewards.extend(total_episode_rewards[done_mask])
-                total_episode_rewards[done_mask] = 0.
-                emulator_steps[done_mask] = 0
-                if self.use_rnn and any(done_mask):  # we need to clear all lstm states corresponding to the terminated emulators
-                    done_idx = is_done.nonzero().view(-1)
-                    hx, cx = hx.clone(), cx.clone()  # hx_t, cx_t are used for backward op, so we can't modify them in-place
-                    hx[done_idx, :] = hx_init[done_idx,:].detach()
-                    cx[done_idx, :] = cx_init[done_idx,:].detach()
+            tasks[self.rollout_steps] = infos['task_status']
+            next_v = self.predict_values(states, infos, mask_t.unsqueeze(1), rnn_state)
+            update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
+            average_loss.update(**update_stats)
 
-            tasks[max_local_steps] = infos['task_status']
-            self.global_step += rollout_steps
-            next_v = self.predict_values(states, infos, (hx,cx))
-            R = next_v.detach().view(-1)
+            self.global_step += steps_per_update
+            num_updates += 1
 
-            delta_v = []
-            for t in reversed(range(max_local_steps)):
-                r_t = Variable(torch.from_numpy(rewards[t])).type(self._tensors.FloatTensor)
-                not_done_t = Variable(not_done_masks[t])
-                R = r_t + self.gamma * R * not_done_t
-                delta_v_t = R - values[t].view(-1)
-                delta_v.append(delta_v_t)
-
-            loss, actor_loss, critic_loss = self.compute_loss(
-                torch.cat(delta_v, 0),
-                torch.cat(log_probs, 0).view(-1),
-                torch.cat(entropies, 0).view(-1)
-            )
-
-            term_loss = self.compute_termination_model_loss(log_terminals, tasks)
-            if self._term_model_coef > 0.:# and self.global_step >= self.args['warmup']:
-                loss += self._term_model_coef * term_loss
-
-            self.lr_scheduler.adjust_learning_rate(self.global_step)
-            self.network.zero_grad()
-            loss.backward()
-            global_norm = self.clip_gradients(self.network.parameters(), clip_norm)
-            self.optimizer.step()
-
-            ma_loss.update(total=loss.item(), actor=actor_loss.item(),
-                           critic=critic_loss.item(), term_model=term_loss.item())
-            counter += 1
-            if counter % (10240 // rollout_steps) == 0:
+            if num_updates % (10240 // steps_per_update) == 0:
                 curr_time = time.time()
                 self._training_info(
                     total_rewards=total_rewards,
                     average_speed=(self.global_step-global_step_start) / (curr_time-start_time),
-                    loop_speed=rollout_steps / (curr_time-loop_start_time),
-                    moving_averages=ma_loss, grad_norms=global_norm
-                )
-            if counter % (self.eval_every // rollout_steps) == 0:
-                if (self.eval_func is not None):
-                    stats = self.eval_func(*self.eval_args, **self.eval_kwargs)
+                    loop_speed=steps_per_update / (curr_time-loop_start_time),
+                    update_stats=average_loss)
+
+            if num_updates % (self.eval_every // steps_per_update) == 0:
+                if self.evaluate:
+                    stats = self.evaluate(self.network)
                     training_stats.append((self.global_step, stats))
                     curr_mean_r = stats.mean_r
 
@@ -157,23 +121,27 @@ class MultiTaskPAAC(PAACLearner):
         self._save_progress(self.checkpoint_dir, is_best=False)
         logging.info('Training ended at step %d' % self.global_step)
 
-    def choose_action(self, states, infos, rnn_states):
-        if self.use_rnn:
-            values, a_logits, done_logits, rnn_states = self.network(states, infos, rnn_states)
-        else:
-            values, a_logits, done_logits = self.network(states, infos)
-
+    def choose_action(self, states, infos, masks, net_states):
+        values, distr, done_logits, net_states = self.network(states, infos, masks, net_states)
+        acts = distr.sample().detach()
+        log_probs = distr.log_prob(acts)
+        entropy = distr.entropy()
         log_done = F.log_softmax(done_logits, dim=1)
-        probs = F.softmax(a_logits, dim=1)
-        log_probs = F.log_softmax(a_logits, dim=1)
-        entropy = torch.neg((log_probs * probs)).sum(1)
-        acts = probs.multinomial(1).detach()
-        selected_log_probs = log_probs.gather(1, acts)
+        return acts, values.squeeze(dim=1), log_probs, entropy, log_done, net_states
 
-        check_log_zero(log_probs.data)
-        acts_one_hot = self.action_codes[acts.data.cpu().view(-1).numpy(), :]
-        return acts_one_hot, values, selected_log_probs, entropy, log_done, rnn_states
+    def update_weights(self, next_v, rewards, masks, values, log_probs, entropies, **kwargs):
+        """нужно выкинуть в другие места
+        term_loss = self.compute_termination_model_loss(log_terminals, tasks)
+        if self._term_model_coef > 0.:# and self.global_step >= self.args['warmup']:
+            loss += self._term_model_coef * term_loss
 
+        self.lr_scheduler.adjust_learning_rate(self.global_step)
+        self.network.zero_grad()
+        loss.backward()
+        global_norm = self.clip_gradients(self.network.parameters(), self.clip_norm)
+        self.optimizer.step()
+        /нужно выкинуть в другие места"""
+        pass
 
     def compute_termination_model_loss(self, log_terminals, tasks):
         #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)

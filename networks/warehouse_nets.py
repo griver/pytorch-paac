@@ -1,13 +1,12 @@
-from .paac_nets import torch, nn, F, Variable
+from .paac_nets import torch, nn, F, Categorical
 from .paac_nets import calc_output_shape, AtariLSTM
 import numpy as np
 
-def preprocess_warehouse(obs, infos, t_types):
+def preprocess_warehouse(obs, infos, device):
     obs = (np.ascontiguousarray(obs, dtype=np.float32) / 127.5) - 1.
-    obs = Variable(t_types.FloatTensor(obs))
-
-    task_ids = Variable(t_types.LongTensor(infos['task_id']))
-    props = Variable(t_types.LongTensor(infos['property']))
+    obs = torch.tensor(obs, device=device, dtype=torch.float32)
+    task_ids = torch.tensor(infos['task_id'], device=device, dtype=torch.long)
+    props = torch.tensor(infos['property'], device=device, dtype=torch.long)
     return obs, task_ids, props
 
 
@@ -42,7 +41,7 @@ class WarehouseDefault(AtariLSTM):
         self.fc_value = nn.Linear(hidden_dim, 1)
         self.fc_task_end = nn.Linear(hidden_dim, 2)
 
-    def forward(self, states, infos, rnn_inputs):
+    def forward(self, states, infos, masks, net_state):
         x, task_ids, prop_ids = self._preprocess(states, infos, self._intypes)
         nl = self.nonlinearity
         x = nl(self.conv1(x))
@@ -52,9 +51,15 @@ class WarehouseDefault(AtariLSTM):
         tasks = self.embed_task(task_ids)
         props = self.embed_prop(prop_ids)
         x = torch.cat((x,tasks, props), dim=1)
-        hx, cx = self.lstm(x, rnn_inputs)
+
+        hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx, cx))
+
+        act_logits = self.fc_policy(hx)
+        act_distr = Categorical(logits=act_logits)
         task_end_logits = self.fc_task_end(hx)
-        return self.fc_value(hx), self.fc_policy(hx), task_end_logits, (hx, cx)
+
+        return self.fc_value(hx), act_distr, task_end_logits, dict(hx=hx, cx=cx)
 
 
 warehouse_nets = dict(

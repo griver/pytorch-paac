@@ -105,14 +105,15 @@ class ParallelActorCritic(object):
         logging.info('Starting training at step %d' % self.global_step)
         logging.debug('Device: {}'.format(self.device))
 
-        counter = 0
+        num_updates = 0
         global_step_start = self.global_step
         average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
         total_rewards, training_stats = [], []
         num_emulators = self.batch_env.num_emulators
         total_episode_rewards = np.zeros(num_emulators)
+        steps_per_update = num_emulators * self.rollout_steps
 
-        if self.evaluate is not None:
+        if self.evaluate:
             stats = self.evaluate(self.network)
             training_stats.append((self.global_step, stats))
 
@@ -158,19 +159,19 @@ class ParallelActorCritic(object):
             update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
             average_loss.update(**update_stats)
 
-            self.global_step += num_emulators * self.rollout_steps
-            counter += 1
+            self.global_step += steps_per_update
+            num_updates += 1
 
-            if counter % (self.print_every // (num_emulators*self.rollout_steps)) == 0:
+            if num_updates % (self.print_every // steps_per_update) == 0:
                 curr_time = time.time()
                 self._training_info(
                     total_rewards=total_rewards,
                     average_speed=(self.global_step - global_step_start) / (curr_time - start_time),
-                    loop_speed=(num_emulators*self.rollout_steps) / (curr_time - loop_start_time),
+                    loop_speed=steps_per_update / (curr_time - loop_start_time),
                     update_stats=average_loss)
 
-            if counter % (self.eval_every // (num_emulators*self.rollout_steps)) == 0:
-                if self.evaluate is not None:
+            if num_updates % (self.eval_every // steps_per_update) == 0:
+                if self.evaluate:
                     stats = self.evaluate(self.network)
                     training_stats.append((self.global_step, stats))
 

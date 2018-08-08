@@ -58,8 +58,6 @@ def concurrent_emulator_handler(batch_env):
 
 
 TrainingStats = namedtuple("TrainingStats", ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
-
-
 def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True):
     emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
     try:
@@ -113,12 +111,13 @@ def get_environment_creator(args):
 
 def create_network(args, num_actions, obs_shape):
     if args.framework == 'vizdoom':
-        Network = vizdoom_nets[args.arch]
+        NetworkCls = vizdoom_nets[args.arch]
     elif args.framework == 'atari':
-        Network = atari_nets[args.arch]
+        NetworkCls = atari_nets[args.arch]
 
     device = torch.device(args.device)
-    network = Network(num_actions, obs_shape, device)
+    #network explicitly stores device in order to facilitate casting of incoming tensors
+    network = NetworkCls(num_actions, obs_shape, device)
     network = network.to(device)
     return network
 
