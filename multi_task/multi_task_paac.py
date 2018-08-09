@@ -17,7 +17,27 @@ TrainingStats = namedtuple("TrainingStats",
                                 'mean_steps', 'term_acc', 'term_rec',
                                 'term_prec', 't_ratio', 'p_ratio'])
 
+
 class MultiTaskPAAC(ParallelActorCritic):
+
+    class RolloutData(object):
+        __slots__ = [
+            'values','log_probs',
+            'rewards', 'entropies',
+            'masks', 'next_v',
+            'log_terminals','tasks']
+
+        def __init__(self, values, log_probs, rewards,
+                     entropies, log_terminals, masks,
+                     tasks, next_v):
+            self.values = values
+            self.log_probs = log_probs
+            self.rewards = rewards
+            self.entropies =entropies,
+            self.masks = masks
+            self.next_v = next_v
+            self.log_terminals =log_terminals
+            self.tasks = tasks
 
     def __init__(self, network, batch_env, args):
         super(MultiTaskPAAC, self).__init__(network, batch_env, args)
@@ -25,101 +45,45 @@ class MultiTaskPAAC(ParallelActorCritic):
         logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
         class_weights = th.tensor(args.term_weights).to(self.device, th.float32)
         self._term_model_loss = nn.NLLLoss(weight=class_weights).to(self.device)
+        self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'term_loss', 'grad_norm'])
 
+    def rollout(self, state, info, mask, rnn_state):
+        """performs a rollout"""
+        self.network.detach_rnn_state(rnn_state)
+        values, log_probs, rewards, entropies, log_terminals, masks = [], [], [], [], [], []
+        tasks = []
 
-    def train(self):
-        """
-         Main actor learner loop for parallerl advantage actor critic learning.
-         """
-        logging.info('Starting training at step %d' % self.global_step)
-        logging.debug('Device: {}'.format(self.device))
+        for t in range(self.rollout_steps):
+            #don't know but probably we need only task values at step t+1
+            # i.e the values needed for prediction)
+            # and not the values used as input...
+            tasks.append(info['task_status'])
+            outputs = self.choose_action(state, info, mask.unsqueeze(1), rnn_state)
+            a_t, v_t, log_probs_t, entropy_t, log_term_t, rnn_state = outputs
+            state, r, done, info = self.batch_env.next(a_t)
 
-        num_updates = 0
-        global_step_start = self.global_step
-        average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'term_model', 'grad_norm'])
-        total_rewards, training_stats = [], []
-        num_emulators = self.batch_env.num_emulators
-        steps_per_update = num_emulators * self.rollout_steps
-        total_episode_rewards = np.zeros(num_emulators)
-        best_mean_r = float('-inf')
+            tensor_rs = th.from_numpy(self.reshape_r(r)).to(self.device)
+            rewards.append(tensor_rs)
+            log_terminals.append(log_term_t)
+            entropies.append(entropy_t)
+            log_probs.append(log_probs_t)
+            values.append(v_t)
 
-        if self.evaluate:
-            stats = self.evaluate(self.network)
-            training_stats.append((self.global_step, stats))
-            curr_mean_r = best_mean_r = stats.mean_r
+            mask = 1.0 - th.from_numpy(done).to(self.device)
+            masks.append(mask)  #1.0 if episode is not done, 0.0 otherwise
 
-        #stores 0.0 in i-th element if the episode in i-th emulator has just started, otherwise stores 1.0
-        mask_t = th.zeros(num_emulators).to(self.device)
-        tasks = np.zeros((self.rollout_steps+1, num_emulators)).to(self.device)
-        #feedforward networks also use rnn_state, it's just empty!
-        rnn_state = self.network.init_rnn_state(num_emulators)
-        states, infos = self.batch_env.reset_all()
+            done_mask = done.astype(bool)
+            self.episodes_rewards += r
+            if any(done_mask):
+                self.reward_history.extend(self.episodes_rewards[done_mask])
+                self.episodes_rewards[done_mask] = 0.
 
-        start_time = time.time()
-        while self.global_step < self.total_steps:
+        tasks[self.rollout_steps] = info['task_status']
+        next_v = self.predict_values(state, info, mask.unsqueeze(1), rnn_state).detach()
 
-            loop_start_time = time.time()
-            values, log_probs, rewards, entropies, log_terminals, masks = [],[],[],[],[],[]
-            self.network.detach_rnn_state(rnn_state)
-
-            for t in range(self.rollout_steps):
-                #don't know but probably we need only task values at step t+1
-                # i.e the values needed for prediction)
-                # and not the values used as input...
-                tasks[t] = infos['task_status']
-                outputs = self.choose_action(states, infos, mask_t.unsqueeze(1), rnn_state)
-                a_t, v_t, log_probs_t, entropy_t, log_term_t, rnn_state = outputs
-                states, rs, dones, infos = self.batch_env.next(a_t)
-
-                tensor_rs = th.from_numpy(self.reshape_r(rs)).to(self.device)
-                rewards.append(tensor_rs)
-                log_terminals.append(log_term_t)
-                entropies.append(entropy_t)
-                log_probs.append(log_probs_t)
-                values.append(v_t)
-
-                mask_t = 1.0 - th.from_numpy(dones).to(self.device)
-                masks.append(mask_t) #1.0 if episode is not done, 0.0 otherwise
-
-                done_mask = dones.astype(bool)
-                total_episode_rewards += rs
-                if any(done_mask):
-                    total_rewards.extend(total_episode_rewards[done_mask])
-                    total_episode_rewards[done_mask] = 0.
-
-            tasks[self.rollout_steps] = infos['task_status']
-            next_v = self.predict_values(states, infos, mask_t.unsqueeze(1), rnn_state)
-            update_stats = self.update_weights(next_v, rewards, masks, values, log_probs, entropies)
-            average_loss.update(**update_stats)
-
-            self.global_step += steps_per_update
-            num_updates += 1
-
-            if num_updates % (10240 // steps_per_update) == 0:
-                curr_time = time.time()
-                self._training_info(
-                    total_rewards=total_rewards,
-                    average_speed=(self.global_step-global_step_start) / (curr_time-start_time),
-                    loop_speed=steps_per_update / (curr_time-loop_start_time),
-                    update_stats=average_loss)
-
-            if num_updates % (self.eval_every // steps_per_update) == 0:
-                if self.evaluate:
-                    stats = self.evaluate(self.network)
-                    training_stats.append((self.global_step, stats))
-                    curr_mean_r = stats.mean_r
-
-            if self.global_step - self.last_saving_step >= self.save_every:
-                is_best = False
-                if curr_mean_r > best_mean_r:
-                    best_mean_r = curr_mean_r
-                    is_best=True
-                self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=is_best)
-                training_stats = []
-                self.last_saving_step = self.global_step
-
-        self._save_progress(self.checkpoint_dir, is_best=False)
-        logging.info('Training ended at step %d' % self.global_step)
+        rollout_data = self.RolloutData(values, log_probs, rewards, entropies,
+                                        log_terminals, masks, tasks, next_v)
+        return rollout_data, (state, info, mask, rnn_state)
 
     def choose_action(self, states, infos, masks, net_states):
         values, distr, done_logits, net_states = self.network(states, infos, masks, net_states)
@@ -129,25 +93,33 @@ class MultiTaskPAAC(ParallelActorCritic):
         log_done = F.log_softmax(done_logits, dim=1)
         return acts, values.squeeze(dim=1), log_probs, entropy, log_done, net_states
 
-    def update_weights(self, next_v, rewards, masks, values, log_probs, entropies, **kwargs):
-        """нужно выкинуть в другие места
-        term_loss = self.compute_termination_model_loss(log_terminals, tasks)
-        if self._term_model_coef > 0.:# and self.global_step >= self.args['warmup']:
-            loss += self._term_model_coef * term_loss
+    def update_weights(self, rollout_data):
+        returns = self.compute_returns(rollout_data.next_v, rollout_data.rewards, rollout_data.masks, self.gamma)
+
+        loss, update_info = self.compute_loss(
+            th.cat(returns), th.cat(rollout_data.values),
+            th.cat(rollout_data.log_probs), th.cat(rollout_data.entropies)
+        )
+        if self._term_model_loss > 0.:
+            term_loss, term_info = self.compute_termination_model_loss(rollout_data.log_terminals, rollout_data.tasks)
+            loss += self._term_model_loss * term_loss
+            update_info.update(**term_info)
 
         self.lr_scheduler.adjust_learning_rate(self.global_step)
-        self.network.zero_grad()
+        self.optimizer.zero_grad()
         loss.backward()
         global_norm = self.clip_gradients(self.network.parameters(), self.clip_norm)
         self.optimizer.step()
-        /нужно выкинуть в другие места"""
-        pass
+
+        update_info['grad_norm'] = global_norm
+        return update_info
 
     def compute_termination_model_loss(self, log_terminals, tasks):
         #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
         tasks_done = (tasks[:-1] != 0).astype(np.int32)
-        tasks_done = torch.from_numpy(tasks_done).type(self._tensors.LongTensor)
-        tasks_done = Variable(tasks_done.view(-1))
-        log_terminals = torch.cat(log_terminals, 0) #.type(self._tensors.FloatTensor)
+        tasks_done = th.tensor(tasks_done, device=self.device, dtype=th.long)
+        tasks_done = tasks_done.view(-1)
+        log_terminals = th.cat(log_terminals) #.type(self._tensors.FloatTensor)
         term_loss = self._term_model_loss(log_terminals, tasks_done)
-        return term_loss
+        loss_data = {'term_loss':term_loss.item()}
+        return term_loss, loss_data

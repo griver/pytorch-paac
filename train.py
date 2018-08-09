@@ -103,9 +103,9 @@ def main(args):
 
 def get_environment_creator(args):
     if args.framework == 'vizdoom':
-        env_creator = VizdoomGamesCreator(args)
+        env_creator = VizdoomGamesCreator(**vars(args))
     elif args.framework == 'atari':
-        env_creator = AtariGamesCreator(args)
+        env_creator = AtariGamesCreator(**vars(args))
     return env_creator
 
 
