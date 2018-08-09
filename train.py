@@ -59,7 +59,10 @@ def concurrent_emulator_handler(batch_env):
 
 TrainingStats = namedtuple("TrainingStats", ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
 def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True):
-    emulator = SequentialBatchEmulator(env_creator, num_episodes, False)
+    emulator = SequentialBatchEmulator(
+        env_creator, num_episodes, False,
+        specific_emulator_args={'single_life_episodes':False}
+    )
     try:
         num_steps, rewards = evaluate.stats_eval(network, emulator, greedy=greedy)
     finally:
