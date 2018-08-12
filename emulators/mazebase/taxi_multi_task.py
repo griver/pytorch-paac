@@ -8,11 +8,16 @@ from .taxi_featurizers import  LocalViewFeaturizer, GlobalViewFeaturizer, FewHot
 from .taxi_game import Passenger, TaxiAgent, print_obs, user_action, rnd
 
 from collections import namedtuple
-from enum import Enum
+from enum import Enum, IntEnum
+
 
 Relation = Enum('Relation', ['INSIDE', 'NEAR', 'FAR'])
 Task = Enum('Task', "PICKUP DROPOFF REACH_P REACH_D")
 TaxiGameState = namedtuple('TaxiGameState', ['pRt', 'pRd', 'tRd'])
+
+
+
+
 
 
 class RestrainedMultiTaskTaxiAgent(TaxiAgent):

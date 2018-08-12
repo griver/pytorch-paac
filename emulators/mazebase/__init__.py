@@ -3,7 +3,7 @@ from ..environment_creator import BaseEnvironmentCreator
 
 class MazebaseGamesCreator(BaseEnvironmentCreator):
     @staticmethod
-    def available_games(**kwargs):
+    def available_games(*args,**kwargs):
         games = [
           "single_goal",
           "switches",
@@ -40,7 +40,7 @@ class MazebaseGamesCreator(BaseEnvironmentCreator):
 
 class TaxiGamesCreator(MazebaseGamesCreator):
     @staticmethod
-    def available_games(**kwargs):
+    def available_games(*args, **kwargs):
         games = [
           "taxi_game",
           "taxi_multi_task",

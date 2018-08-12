@@ -9,7 +9,7 @@ import utils.eval_taxi as evaluate
 from multi_task import MultiTaskPAAC
 from networks import taxi_nets, preprocess_taxi_input
 
-from train import args_to_str, concurrent_emulator_handler, set_exit_handler
+from train import args_to_str, concurrent_emulator_handler, set_exit_handler, eval_network
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
 
@@ -19,18 +19,20 @@ ARGS_FILE = 'args_multi_task.json'
 VIEW_SIZE = (5,5)
 
 def main(args):
-    env_creator = TaxiGamesCreator(args)
+    env_creator = TaxiGamesCreator(**vars(args))
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
 
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
     logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess,env_creator, args.num_actions, args.num_envs)
+    batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    #batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
+        #batch_env.start_workers()
         learner = MultiTaskPAAC(network, batch_env, args)
-        learner.evaluate = lambda net:evaluate.stats_eval(net, env_creator, test_count=50)
+        #learner.evaluate = lambda net:eval_network(net, env_creator, 50)
         learner.train()
     finally:
         batch_env.close()
@@ -101,7 +103,7 @@ def get_arg_parser():
                         help='Weight of the termination model loss in the total loss'+show_default)
     parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
                         help='Class weights for the termination classifier loss.'+show_default)
-    parser.add_argument('-w', '--warmup', default=0, type=int,
+    parser.add_argument('--warmup', default=0, type=int,
                         help='A number of steps for wich we train only actor-critic!'+show_default)
     #args that common for any model that learns on parallel environments:
     parser.add_argument('-d', '--device', default=default_device, type=str, choices=devices, dest="device",

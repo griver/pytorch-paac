@@ -10,7 +10,7 @@ from torch.autograd import Variable
 import utils
 from utils import red
 from collections import namedtuple
-from ..paac import ParallelActorCritic
+from paac import ParallelActorCritic
 
 TrainingStats = namedtuple("TrainingStats",
                                ['mean_r', 'max_r', 'min_r', 'std_r',

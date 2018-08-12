@@ -1,8 +1,7 @@
 #from emulators.mazebase.multi_task_taxi import console_test_play
 import numpy as np
 from six.moves import xrange
-from emulators import TaxiEmulator
-
+from itertools import count
 
 def print_few_hot(state, encoder, cell_len=35):
     state = state.transpose((1, 2, 0))  # from [C,H,W] shape to a [H,W,C] shape
@@ -27,56 +26,47 @@ def user_action(actions):
 
         act = input('Input your action:\n')
 
-    return act
+    return actions.index(act)
 
 
 if __name__ == '__main__':
     import train_multi_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-g taxi_game -d cpu -ew 1 -ec 2 --max_global_steps 500 -df debug_logs -m 6 6 6 6'
-    print('Taxi Emulator:', TaxiEmulator.available_games())
+    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 500 -df debug_logs -m 6 6 6 6 --arch lstm'
+    print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
 
-    _, env_creator = tr.get_network_and_environment_creator(args)
+    env_creator = tr.TaxiGamesCreator(**vars(args))
     print('args:')
     print(tr.args_to_str(args))
 
-    preprocess_states = env_creator.preprocess_states
     obs_shape = env_creator.obs_shape
-    print('env num_actions:', env_creator.num_actions)
+    print('num_actions:', env_creator.num_actions, 'obs_shape:', obs_shape)
 
-    envs = [env_creator.create_environment(i) for i in xrange(args.num_envs)]
-    env = envs[0]
+    env = env_creator.create_environment(17)
     if args.game == 'taxi_multi_task':
         print('All possible episode configurations:')
         for i, conf in enumerate(env.game.episode_configs):
             print(i, conf)
         n_tasks_mean =np.mean([len(tasks) for state, tasks in env.game.episode_configs])
         print('Mean number of tasks per episode:', n_tasks_mean)
+        print()
 
-
-    state = env.reset()
-    state, info = preprocess_states(state[np.newaxis,:], obs_shape)
-    print('reward:', 0, 'task:', env.game.task(), end=' ')
-    print('state_shape:', state.shape, 'task_id:', info)
+    state, info = env.reset()
+    print('task[0]={} task_id[0]={}, state[0]:'.format(env.game.task(), info['task_id']))
     env.game.display()
-    print('few_hot_encoding:')
-    print_few_hot(state[0], env._encoder)
-
+    #print('few_hot_encoding:')
+    #print_few_hot(state, env._encoder)
     is_done = False
-    action_vectors = np.eye(env_creator.num_actions)
-    act2vec = {act:vec for act,vec in zip(env.legal_actions, action_vectors)}
-    while True:
-        a = act2vec[user_action(env.legal_actions)]
-        state, r, is_done = env.next(a)
-        state, info = preprocess_states(state[np.newaxis,:], obs_shape)
-        print('reward:', r, 'task:', env.game.task(), end=' ')
-        print('state_shape:', state.shape, 'task_id:', info)
-        print('display:')
+    for t in count():
+        a = user_action(env.legal_actions)
+        state, r, is_done, info = env.next(a)
+
+        print('a[{0}]={1} r[{0}]={2}'.format(t,a,r))
+        print('-----------------------------------------------------------')
+        print('task[{0}]={1}, task_id[{0}]={2}, state[{0}]:'.format(t+1, env.game.task(), info['task_id']))
         env.game.display()
-        print('few_hot_encoding')
-        print_few_hot(state[0], env._encoder)
 
         if is_done:
             break
