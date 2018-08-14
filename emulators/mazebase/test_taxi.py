@@ -33,7 +33,7 @@ if __name__ == '__main__':
     import train_multi_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 500 -df debug_logs -m 6 6 6 6 --arch lstm'
+    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 500 -df debug_logs -m 6 6 6 6 --arch lstm --random_seed 17 -fa'
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
 
@@ -45,16 +45,9 @@ if __name__ == '__main__':
     print('num_actions:', env_creator.num_actions, 'obs_shape:', obs_shape)
 
     env = env_creator.create_environment(17)
-    if args.game == 'taxi_multi_task':
-        print('All possible episode configurations:')
-        for i, conf in enumerate(env.game.episode_configs):
-            print(i, conf)
-        n_tasks_mean =np.mean([len(tasks) for state, tasks in env.game.episode_configs])
-        print('Mean number of tasks per episode:', n_tasks_mean)
-        print()
 
     state, info = env.reset()
-    print('task[0]={} task_id[0]={}, state[0]:'.format(env.game.task(), info['task_id']))
+    print('task[0]={} | info[0]={} | state[0]:'.format(env.game.task(), info))
     env.game.display()
     #print('few_hot_encoding:')
     #print_few_hot(state, env._encoder)
@@ -65,7 +58,7 @@ if __name__ == '__main__':
 
         print('a[{0}]={1} r[{0}]={2}'.format(t,a,r))
         print('-----------------------------------------------------------')
-        print('task[{0}]={1}, task_id[{0}]={2}, state[{0}]:'.format(t+1, env.game.task(), info['task_id']))
+        print('task[{0}]={1} | info[{0}]={2} | state[{0}]:'.format(t+1, env.game.task(), info))
         env.game.display()
 
         if is_done:

@@ -9,7 +9,7 @@ import utils.eval_taxi as evaluate
 from multi_task import MultiTaskPAAC
 from networks import taxi_nets, preprocess_taxi_input
 
-from train import args_to_str, concurrent_emulator_handler, set_exit_handler, eval_network
+from train import args_to_str, concurrent_emulator_handler, set_exit_handler
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
 
@@ -26,13 +26,13 @@ def main(args):
     logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
-    batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
-    #batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    #batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
-        #batch_env.start_workers()
+        batch_env.start_workers()
         learner = MultiTaskPAAC(network, batch_env, args)
-        #learner.evaluate = lambda net:eval_network(net, env_creator, 50)
+        #learner.evaluate = lambda net:evaluate.stats_eval(net, env_creator, 50)
         learner.train()
     finally:
         batch_env.close()

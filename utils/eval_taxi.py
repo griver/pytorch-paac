@@ -30,7 +30,7 @@ def set_user_defined_episodes(env):
         print('tasks:', task_seq)
         return (init_config, task_seq)
 
-    env.game._get_new_config = choose_new_config
+    env.game._get_reset_config = choose_new_config
 
 
 def interactive_eval(network, env_creator, test_count, **kwargs):
@@ -150,7 +150,6 @@ def visual_eval(network, env_creator, test_count, **kwargs):
 def stats_eval(network, env_creator, test_count, **kwargs):
     assert network.training == False, 'You should set the network to eval mode before testing!'
     greedy = kwargs.get('greedy', False)
-    is_recurrent = kwargs.get('is_recurrent', False)
     termination_threshold = kwargs.get('termination_threshold', 0.5)
 
     envs = [env_creator.create_environment(i) for i in range(test_count)]

@@ -42,10 +42,11 @@ class MazebaseEmulator(BaseEnvironment):
         return MAZEBASE_GAMES
 
     def __init__(self, emulator_id, game, full_view=False, verbose=0,
-                 view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE, **unknown):
+                 view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE,
+                 random_seed=17, finish_action=False, fail_reward=0., **unknown):
         if verbose >= 2:
             logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
-
+        self.emulator_id = emulator_id
         available_games = self.available_games()
         assert game in available_games, '{0}: There is no such game in the mazebase framework'.format(game)
         game_cls = available_games[game]
@@ -55,9 +56,13 @@ class MazebaseEmulator(BaseEnvironment):
         else:
             featurizer = LocalViewFeaturizer(window_size=view_size, notify=True)
 
+        game_seed = (self.emulator_id * random_seed) % (2**32)
         self.game = game_cls(map_size=map_size,
                              featurizer=featurizer,
-                             max_episode_steps=300)
+                             max_episode_steps=300,
+                             random_seed=game_seed,
+                             finish_action=finish_action,
+                             fail_reward=fail_reward)
 
         state, _, _, _ = self._observe() #masebase resets games during __init__
         self.observation_shape = state.shape
@@ -67,7 +72,6 @@ class MazebaseEmulator(BaseEnvironment):
         self.id = emulator_id
         if verbose > 2:
             logging.debug('Intializing mazebase.{0} emulator_id={1}'.format(game, self.id))
-            logging.warning("The games from MazeBase don't use the random_seed argument")
         # Mazebase generates random samples
         # within itself in different modules across the package; therefore,
         # we can't fix a random generator without rewriting mazebase.

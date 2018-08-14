@@ -10,7 +10,7 @@ class TaxiFeaturizer(mb_featurizers.BaseGridFeaturizer):
         super(TaxiFeaturizer, self).__init__(**kwargs)
 
     def _featurize_side_info(self, game, id):
-        return game._side_information()[0]
+        return game._side_information()
 
     def all_possible_features(self, game):
         fts = super(TaxiFeaturizer, self).all_possible_features(game)

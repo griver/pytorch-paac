@@ -25,19 +25,19 @@ class MultiTaskPAAC(ParallelActorCritic):
             'values','log_probs',
             'rewards', 'entropies',
             'masks', 'next_v',
-            'log_terminals','tasks']
+            'log_terminals','tasks_status']
 
         def __init__(self, values, log_probs, rewards,
                      entropies, log_terminals, masks,
-                     tasks, next_v):
+                     tasks_status, next_v):
             self.values = values
             self.log_probs = log_probs
             self.rewards = rewards
-            self.entropies =entropies,
+            self.entropies =entropies
             self.masks = masks
             self.next_v = next_v
             self.log_terminals =log_terminals
-            self.tasks = tasks
+            self.tasks_status = tasks_status
 
     def __init__(self, network, batch_env, args):
         super(MultiTaskPAAC, self).__init__(network, batch_env, args)
@@ -50,21 +50,20 @@ class MultiTaskPAAC(ParallelActorCritic):
     def rollout(self, state, info, mask, rnn_state):
         """performs a rollout"""
         self.network.detach_rnn_state(rnn_state)
-        values, log_probs, rewards, entropies, log_terminals, masks = [], [], [], [], [], []
-        tasks = []
+        values, log_probs, rewards, entropies, log_dones, masks = [], [], [], [], [], []
+        tasks_status = []
 
         for t in range(self.rollout_steps):
-            #don't know but probably we need only task values at step t+1
-            # i.e the values needed for prediction)
-            # and not the values used as input...
-            tasks.append(info['task_status'])
             outputs = self.choose_action(state, info, mask.unsqueeze(1), rnn_state)
-            a_t, v_t, log_probs_t, entropy_t, log_term_t, rnn_state = outputs
+            a_t, v_t, log_probs_t, entropy_t, log_done_t, rnn_state = outputs
             state, r, done, info = self.batch_env.next(a_t)
-
+            #!!! self.batch_env returns references to arrays in shared memory,
+            # always copy their values if you want to use them later,
+            #  as the values will be rewritten at the next step !!!
+            tasks_status.append(th.from_numpy(info['task_status']).to(self.device,))
             tensor_rs = th.from_numpy(self.reshape_r(r)).to(self.device)
             rewards.append(tensor_rs)
-            log_terminals.append(log_term_t)
+            log_dones.append(log_done_t)
             entropies.append(entropy_t)
             log_probs.append(log_probs_t)
             values.append(v_t)
@@ -78,11 +77,10 @@ class MultiTaskPAAC(ParallelActorCritic):
                 self.reward_history.extend(self.episodes_rewards[done_mask])
                 self.episodes_rewards[done_mask] = 0.
 
-        tasks[self.rollout_steps] = info['task_status']
         next_v = self.predict_values(state, info, mask.unsqueeze(1), rnn_state).detach()
 
         rollout_data = self.RolloutData(values, log_probs, rewards, entropies,
-                                        log_terminals, masks, tasks, next_v)
+                                        log_dones, masks, tasks_status, next_v)
         return rollout_data, (state, info, mask, rnn_state)
 
     def choose_action(self, states, infos, masks, net_states):
@@ -100,9 +98,13 @@ class MultiTaskPAAC(ParallelActorCritic):
             th.cat(returns), th.cat(rollout_data.values),
             th.cat(rollout_data.log_probs), th.cat(rollout_data.entropies)
         )
-        if self._term_model_loss > 0.:
-            term_loss, term_info = self.compute_termination_model_loss(rollout_data.log_terminals, rollout_data.tasks)
-            loss += self._term_model_loss * term_loss
+        if self._term_model_coef > 0.:
+            term_loss, term_info = self.compute_termination_model_loss(
+                th.cat(rollout_data.log_terminals),
+                th.cat(rollout_data.tasks_status),#0-running,1-success,2-fail
+                th.cat(rollout_data.masks).to(th.uint8) #1-episode is not done, 0-episode is done
+            )
+            loss += self._term_model_coef * term_loss
             update_info.update(**term_info)
 
         self.lr_scheduler.adjust_learning_rate(self.global_step)
@@ -114,12 +116,14 @@ class MultiTaskPAAC(ParallelActorCritic):
         update_info['grad_norm'] = global_norm
         return update_info
 
-    def compute_termination_model_loss(self, log_terminals, tasks):
-        #tasks_done = (tasks[:-1] != tasks[1:]).astype(int)
-        tasks_done = (tasks[:-1] != 0).astype(np.int32)
-        tasks_done = th.tensor(tasks_done, device=self.device, dtype=th.long)
-        tasks_done = tasks_done.view(-1)
-        log_terminals = th.cat(log_terminals) #.type(self._tensors.FloatTensor)
-        term_loss = self._term_model_loss(log_terminals, tasks_done)
+    def compute_termination_model_loss(self, log_terminals, tasks_status, ep_masks):
+        tasks_status[tasks_status > 1] = 0 # we are predicting only success states
+        tasks_status = tasks_status[ep_masks]
+        log_terminals = log_terminals[ep_masks,:]
+
+        term_loss = self._term_model_loss(log_terminals, target=tasks_status)
+
         loss_data = {'term_loss':term_loss.item()}
+
+
         return term_loss, loss_data

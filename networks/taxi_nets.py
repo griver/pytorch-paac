@@ -11,7 +11,7 @@ def preprocess_taxi_input(obs, tasks_ids, t_device):
 class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
     def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=5, task_embed_dim=32, preprocess=None):
+                 num_tasks=5, task_embed_dim=128, preprocess=None):
         super(MultiTaskFFNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -141,6 +141,9 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
 
 class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
+    """
+    RNN network for the full Taxi task
+    """
     def _create_network(self):
         C, H, W = self._obs_shape
         self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
@@ -172,49 +175,9 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         return state_value, action_distr, terminal_logits, dict(hx=hx, cx=cx)
 
 
-class MultiTaskLSTMNew(MultiTaskLSTMNetwork):
-    def _create_network(self):
-        C, H, W = self._obs_shape
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
-        self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
-
-        conv_and_embed_dim = 32 * H * W + self._task_embed_dim
-
-        self.lstm = nn.LSTMCell(conv_and_embed_dim, 256, bias=True)
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
-        #termination classifier part:
-        self.fc_terminal1 = nn.Linear(conv_and_embed_dim, 256)
-        self.fc_terminal2 = nn.Linear(256 + self._num_actions, 2)
-
-    def forward(self, obs, infos, masks, net_state):
-        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
-        # obs embeds:
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size()[0], -1)
-        # task embeds:
-        task_ids = self.embed1(task_ids)
-        x = torch.cat((x, task_ids), 1)
-        #lstm and actor-critic outputs:
-        hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
-        hx, cx = self.lstm(x, (hx, cx))
-
-        state_value = self.fc_value(hx)
-        act_logits = self.fc_policy(hx)
-        act_distr = Categorical(logits=act_logits)
-        #termination prediction classifier:
-        t = F.relu(self.fc_terminal1(x))
-        t = torch.cat((t, act_logits.detach()), 1)
-        termination_logits = self.fc_terminal2(t)
-
-        return state_value, act_distr, termination_logits, dict(hx=hx, cx=cx)
-
 
 taxi_nets = {
     'mt_lstm': MultiTaskLSTMNetwork,
-    'mt_lstm_new': MultiTaskLSTMNew,
     'lstm': TaxiLSTMNetwork,
     'mt_ff': MultiTaskFFNetwork,
 }
