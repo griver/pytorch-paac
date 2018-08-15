@@ -2,8 +2,10 @@ import numpy as np
 import itertools
 from torch.nn import functional as F
 import torch as th
+from torch.distributions import Categorical
 import logging, copy
 from .utils import BinaryClassificationStats
+from .evaluate import model_evaluation
 
 def set_user_defined_episodes(env):
     """
@@ -92,7 +94,7 @@ def interactive_eval(network, env_creator, test_count, **kwargs):
 
     return num_steps, rewards, None
 
-
+@model_evaluation
 def visual_eval(network, env_creator, test_count, **kwargs):
     assert network.training == False, 'You should set the network to eval mode before testing!'
     greedy = kwargs.get('greedy', False)
@@ -147,95 +149,84 @@ def visual_eval(network, env_creator, test_count, **kwargs):
     return num_steps, rewards, None
 
 
-def stats_eval(network, env_creator, test_count, **kwargs):
+
+@model_evaluation
+def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termination_threshold=0.5):
     assert network.training == False, 'You should set the network to eval mode before testing!'
-    greedy = kwargs.get('greedy', False)
-    termination_threshold = kwargs.get('termination_threshold', 0.5)
 
-    envs = [env_creator.create_environment(i) for i in range(test_count)]
-    preprocess_states = env_creator.preprocess_states
-    Ttypes = network._intypes
-    max_local_steps = 10
+    auto_reset = getattr(batch_emulator, 'auto_reset', True)
+    device = network._device
+    num_envs = batch_emulator.num_emulators
+    num_episodes = num_episodes if num_episodes else num_envs
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
 
-    terminated = th.zeros(test_count).type(Ttypes.ByteTensor)
-    rewards = np.zeros(test_count, dtype=np.float32)
-    num_steps = np.full(len(envs), float('inf'))
-    action_codes = np.eye(env_creator.num_actions)
-    #data for termination prediction model:
-    targets = th.zeros((max_local_steps, test_count)).type(Ttypes.LongTensor)
-    preds = th.zeros((max_local_steps, test_count)).type(Ttypes.LongTensor)
-    not_done_mask = th.zeros((max_local_steps, test_count)).type(Ttypes.ByteTensor)
+    episode_rewards, episode_steps = [], []
+    terminated = np.full(num_envs, False, dtype=np.bool)
+    total_r = np.zeros(num_envs, dtype=np.float32)
+    num_steps = np.zeros(num_envs, dtype=np.int64)
+    device = network._device
+
+    rnn_state = network.init_rnn_state(num_envs)
+    mask = th.zeros(num_envs,1).to(device)
+    state, info = batch_emulator.reset_all()
 
     extra_inputs = {
         'greedy': greedy,
         'termination_threshold':termination_threshold
     }
-    if is_recurrent:
-        rnn_init = network.get_initial_state(len(envs))
-        extra_inputs['rnn_inputs'] = rnn_init
-    else:
-        extra_inputs['rnn_inputs'] = None
-
-    logging.info('Use stochasitc policy' if not greedy else 'Use deterministic policy')
 
     termination_model_stats = BinaryClassificationStats()
-    states = [env.reset() for env in envs]
-    states = np.array(states, dtype=np.uint8)
-    obs_t, task_t = preprocess_states(states, env_creator.obs_shape)
 
-    for T in itertools.count():
-        for t in range(max_local_steps):
-            net_output = choose_action(network, obs_t, task_t, **extra_inputs)
-            vals, acts, done_preds, extra_inputs['rnn_inputs'], _ = net_output
-            old_task = task_t.copy()
-            not_done_mask[t] = (1 - terminated) #game should be not done in the moment of prediction
+    for t in itertools.count():
+        outputs = choose_action(network, state, info, mask, rnn_state, **extra_inputs)
+        acts, done_preds, rnn_state, _ = outputs
 
-            acts_one_hot = action_codes[acts.data.cpu().view(-1).numpy(), :]
-            for env_id, env in enumerate(envs):
-                if not terminated[env_id]:
-                    s, r, is_done = env.next(acts_one_hot[env_id])
-                    states[env_id] = s
-                    rewards[env_id] += r
-                    terminated[env_id] = is_done
-                    num_steps[env_id] = T*max_local_steps + t + 1
+        state, reward, is_done, info =  batch_emulator.next(acts)
+        mask[:,0] = th.from_numpy(1.-is_done).to(device) #mask isn't used anywhere else, thus we can just rewrite it.
+        #determine emulators states and collect stats about episodes' rewards and lengths:
+        running = np.logical_not(terminated)
+        just_ended = np.logical_and(running, is_done)
+        total_r[running] += reward[running]
+        num_steps[running] += 1
+        episode_rewards.extend(total_r[just_ended])
+        episode_steps.extend(num_steps[just_ended])
+        total_r[just_ended] = 0
+        num_steps[just_ended] = 0
 
+        #collect stats about predictions of tasks termination:
+        pred_mask = np.logical_and(running, np.logical_not(just_ended))
+        masked_done_preds = done_preds.cpu().numpy()[pred_mask]
+        masked_done_targets = info['task_status'][pred_mask]
+        masked_done_targets[masked_done_targets != 1] = 0 # merge Fail(2) and Running(0) statuses
+        termination_model_stats.add_batch(masked_done_preds, masked_done_targets)
 
-            obs_t, task_t = preprocess_states(states, env_creator.obs_shape)
+        if len(episode_rewards) >= num_episodes: break
+        if not auto_reset:
+            terminated = np.logical_or(terminated, is_done)
+            if all(terminated):
+                states, infos = batch_emulator.reset_all()
+                terminated[:] = False
 
-            targets_t = (task_t != old_task).astype(int)
-            targets[t,:] = th.from_numpy(targets_t).type(Ttypes.LongTensor)
-            preds[t, :] = done_preds.data.type(Ttypes.LongTensor)
-
-        termination_model_stats.add_batch(
-            preds=th.masked_select(preds, not_done_mask),
-            targets=th.masked_select(targets, not_done_mask)
-        )
-        if terminated.all() : break
-
-    return num_steps, rewards, termination_model_stats
+    return episode_steps, episode_rewards, termination_model_stats
 
 
-def choose_action(network, *inputs, **kwargs):
-    rnn_inputs = kwargs['rnn_inputs']
-    if rnn_inputs is not None:
-        values, a_logits, done_logits, rnn_state = network(*inputs, rnn_inputs=rnn_inputs)
+def choose_action(network, state, info, mask, rnn_state, **kwargs):
+    value, act_distr, done_logits, rnn_state = network(state, info, mask, rnn_state)
+    done_distr = Categorical(logits=done_logits)
+    greedy = kwargs.get('greedy', False)
+    done_pred_threshold = kwargs.get('termination_threshold')
+
+    acts = act_distr.probs.argmax(dim=1) if greedy else act_distr.sample()
+    if done_pred_threshold:
+        done_preds = done_distr.probs[:,1].ge(done_pred_threshold)
     else:
-        values, a_logits, done_logits = network(*inputs)
-        rnn_state = None
+        done_preds = done_distr.sample()
 
-    a_probs = F.softmax(a_logits, dim=1)
-    done_probs = F.softmax(done_logits, dim=1)
-
-    if not kwargs['greedy']:
-        acts = a_probs.multinomial(1)
-    else:
-        acts = a_probs.max(1, keepdim=True)[1]
-    if kwargs['termination_threshold'] is None:
-        # multinomial returns a [batch_size, num_samples] shaped tensor
-        done_preds = done_probs.multinomial(1)[:,0]
-    else:
-        done_preds = done_probs[:,1] > kwargs['termination_threshold']
-    extra_info = {'done_probs':done_probs, 'act_probs':a_probs}
-    return values, acts, done_preds, rnn_state, extra_info
+    extra_model_info = {
+        'done_probs':done_distr.probs,
+        'act_probs':act_distr.probs,
+        'values':value,
+    }
+    return acts, done_preds, rnn_state, extra_model_info
 
 

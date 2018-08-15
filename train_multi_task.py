@@ -85,12 +85,12 @@ def get_arg_parser():
     #actor-critic args:
     parser.add_argument('--arch', choices=net_choices,  dest="arch", required=True,
                         help="Which network architecture to train"+show_default)
-    parser.add_argument('--e', default=0.002, type=float, help="Epsilon for the Rmsprop optimizer"+ show_default, dest="e")
+    parser.add_argument('--e', default=0.02, type=float, help="Epsilon for the Rmsprop optimizer"+ show_default, dest="e")
     parser.add_argument('-lr', '--initial_lr', default=0.007, type=float,  dest="initial_lr",
                         help="Initial value for the learning rate."+show_default)
     parser.add_argument('-lra', '--lr_annealing_steps', default=80000000, type=int, dest="lr_annealing_steps",
                         help="Number of global steps during which the learning rate will be linearly annealed towards zero"+show_default)
-    parser.add_argument('--loss_scale', default=5., dest='loss_scaling', type=float,
+    parser.add_argument('--loss_scale', default=1., dest='loss_scaling', type=float,
                         help='Scales loss according to a given value'+show_default)
     parser.add_argument('--critic_coef', default=0.5, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)

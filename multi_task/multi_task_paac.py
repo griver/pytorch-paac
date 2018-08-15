@@ -60,15 +60,14 @@ class MultiTaskPAAC(ParallelActorCritic):
             #!!! self.batch_env returns references to arrays in shared memory,
             # always copy their values if you want to use them later,
             #  as the values will be rewritten at the next step !!!
-            tasks_status.append(th.from_numpy(info['task_status']).to(self.device,))
-            tensor_rs = th.from_numpy(self.reshape_r(r)).to(self.device)
-            rewards.append(tensor_rs)
+            tasks_status.append( self._to_tensor(info['task_status'],th.long) )
+            rewards.append( self._to_tensor(self.reshape_r(r)) )
             log_dones.append(log_done_t)
             entropies.append(entropy_t)
             log_probs.append(log_probs_t)
             values.append(v_t)
 
-            mask = 1.0 - th.from_numpy(done).to(self.device)
+            mask = self._to_tensor(1. - done)
             masks.append(mask)  #1.0 if episode is not done, 0.0 otherwise
 
             done_mask = done.astype(bool)
@@ -104,7 +103,7 @@ class MultiTaskPAAC(ParallelActorCritic):
                 th.cat(rollout_data.tasks_status),#0-running,1-success,2-fail
                 th.cat(rollout_data.masks).to(th.uint8) #1-episode is not done, 0-episode is done
             )
-            loss += self._term_model_coef * term_loss
+            loss += self._term_model_coef*term_loss
             update_info.update(**term_info)
 
         self.lr_scheduler.adjust_learning_rate(self.global_step)

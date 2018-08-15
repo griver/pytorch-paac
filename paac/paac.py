@@ -119,6 +119,9 @@ class ParallelActorCritic(object):
         self.reward_history = []
         logging.debug('Paac init is done')
 
+    def _to_tensor(self, data, dtype=th.float32):
+        return th.tensor(data, dtype=dtype, device=self.device)
+
     def train(self):
         """
         Main actor learner loop for parallerl advantage actor critic learning.
@@ -196,13 +199,12 @@ class ParallelActorCritic(object):
             #!!! self.batch_env returns references to arrays in shared memory,
             # always copy their values if you want to use them later,
             #  as the values will be rewritten at the next step !!!
-            tensor_rs = th.from_numpy(self.reshape_r(r)).to(self.device)
-            rewards.append(tensor_rs)
+            rewards.append( self._to_tensor(self.reshape_r(r)) )
             entropies.append(entropy_t)
             log_probs.append(log_probs_t)
             values.append(v_t)
 
-            mask = 1.0 - th.from_numpy(done).to(self.device)  #done.dtype == np.float32
+            mask = self._to_tensor(1.0-done) #done.dtype == np.float32
             masks.append(mask)  #1.0 if episode is not done, 0.0 otherwise
 
             done_mask = done.astype(bool)
