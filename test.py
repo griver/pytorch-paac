@@ -16,8 +16,8 @@ def fix_args_for_test(args, train_args):
             setattr(args, k, v)
 
     args.max_global_steps = 0
-    rng = np.random.RandomState(int(time.time()))
-    args.random_seed = rng.randint(1000)
+    rnd = np.random.RandomState(int(time.time()))
+    args.random_seed = rnd.randint(1000)
 
     if args.framework == 'vizdoom':
         args.reward_coef = 1.

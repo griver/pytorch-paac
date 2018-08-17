@@ -139,7 +139,9 @@ class DropOff(TaxiTask):
     def update_status(self, state_resume)-> TaskStatus:
         self.step += 1
 
-        finish_condition = not state_resume.passenger_in_taxi
+        finish_condition = (not state_resume.passenger_in_taxi) and\
+                           (self.init_loc == state_resume.loc_taxi)
+
         finish_act = (self.finish_action is None) \
                      or (self.finish_action == state_resume.last_performed_act)
 
@@ -150,6 +152,7 @@ class DropOff(TaxiTask):
         else:
             self.status = TaskStatus.RUNNING
         return self.status
+
 
 class ReachPassenger(TaxiTask):
     task_id = 3

@@ -2,7 +2,9 @@ import argparse
 import logging
 import sys
 import torch
+import numpy as np
 
+from collections import namedtuple
 from emulators import TaxiGamesCreator
 import utils
 import utils.eval_taxi as evaluate
@@ -18,6 +20,55 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE = 'args_multi_task.json'
 VIEW_SIZE = (5,5)
 
+
+TrainingStats = namedtuple("TrainingStats",
+                           ['mean_r','max_r','min_r','std_r',
+                            'mean_steps','term_acc','term_rec',
+                            'term_prec','t_ratio', 'p_ratio'])
+
+
+def eval_network(network, env_creator, num_episodes,
+                 greedy=False, term_threshold=0.5, verbose=True):
+    emulator = SequentialBatchEmulator(
+        env_creator, num_episodes, False,
+        specific_emulator_args={'single_life_episodes':False}
+    )
+    try:
+        num_steps, rewards, done_preds = evaluate.stats_eval(network, emulator,
+                                                             greedy=greedy,
+                                                             termination_threshold=term_threshold)
+    finally:
+        emulator.close()
+        set_exit_handler()
+
+    mean_steps = np.mean(num_steps)
+    min_r, max_r = np.min(rewards), np.max(rewards)
+    mean_r, std_r = np.mean(rewards), np.std(rewards)
+    acc = done_preds.accuracy
+    rec = done_preds.recall
+    prec = done_preds.precision
+    targets_ratio = done_preds.targets_ratio
+    preds_ratio = done_preds.predictions_ratio
+
+    stats = TrainingStats(
+        mean_r=mean_r, min_r=min_r, max_r=max_r, std_r=std_r,
+        term_acc=acc, term_prec=prec, term_rec=rec,
+        mean_steps=mean_steps, t_ratio=targets_ratio, p_ratio=preds_ratio
+    )
+
+    if verbose:
+        lines = [
+            'Perfromed {0} tests:'.format(len(num_steps)),
+            'Mean number of steps: {0:.3f}'.format(mean_steps),
+            'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
+            'Termination Predictor:',
+            'Acc: {:.2f}% | Precision: {:.2f} | Recall: {:.2f}'.format(acc, prec, rec),
+            'Class 1 ratio. Targets: {:.2f}% Preds: {:.2f}%'.format(targets_ratio, preds_ratio)]
+        logging.info(utils.red('\n'.join(lines)))
+
+    return stats
+
+
 def main(args):
     env_creator = TaxiGamesCreator(**vars(args))
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
@@ -32,7 +83,7 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = MultiTaskPAAC(network, batch_env, args)
-        #learner.evaluate = lambda net:evaluate.stats_eval(net, env_creator, 50)
+        learner.evaluate = lambda net:eval_network(net, env_creator, 4)
         learner.train()
     finally:
         batch_env.close()
