@@ -107,7 +107,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         if kwargs['finish_action']:
             print('finish_action flag is provided!')
         self.task_manager = TaskManager(
-            ['pickup', 'dropoff','reach_p','reach_d'],
+            ['pickup','find_p','convey_p'],
             extra_task_kwargs={"finish_action":finish_action}
         )
 

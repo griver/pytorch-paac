@@ -69,7 +69,7 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
 class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=5, task_embed_dim=32, preprocess=None):
+                 num_tasks=6, task_embed_dim=128, preprocess=None):
         super(MultiTaskLSTMNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device

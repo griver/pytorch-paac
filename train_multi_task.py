@@ -83,7 +83,7 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = MultiTaskPAAC(network, batch_env, args)
-        learner.evaluate = lambda net:eval_network(net, env_creator, 4)
+        learner.evaluate = lambda net:eval_network(net, env_creator, 50)
         learner.train()
     finally:
         batch_env.close()

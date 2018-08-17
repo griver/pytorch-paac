@@ -33,7 +33,7 @@ if __name__ == '__main__':
     import train_multi_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 500 -df debug_logs -m 6 6 6 6 --arch lstm --random_seed 17 -fa'
+    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 500 -df debug_logs -m 6 6 6 6 --arch lstm --random_seed 17 -fa -fr -0.5'
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
 

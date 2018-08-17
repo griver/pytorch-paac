@@ -119,28 +119,27 @@ class PickUp(TaxiTask):
         return self.status
 
 
-class DropOff(TaxiTask):
+class ConveyPassenger(TaxiTask):
     task_id = 2
 
-    def __init__(self, init_loc, *args, **kwargs):
-        super(DropOff,self).__init__(*args,**kwargs)
-        self.init_loc = init_loc
+    def __init__(self, *args, **kwargs):
+        super(ConveyPassenger,self).__init__(*args,**kwargs)
 
     @classmethod
     def is_available(Class, state_resume):
-        return state_resume.passenger_in_taxi
+        return state_resume.passenger_in_taxi #and\
+               #state_resume.loc_taxi != state_resume.loc_destination
 
     @classmethod
     def create(Class, state_resume, **kwargs):
-        init_loc = state_resume.loc_taxi
-        kwargs.setdefault('duration',5)
-        return Class(init_loc, **kwargs)
+        kwargs.setdefault('duration',100)
+        return Class(**kwargs)
 
     def update_status(self, state_resume)-> TaskStatus:
         self.step += 1
 
         finish_condition = (not state_resume.passenger_in_taxi) and\
-                           (self.init_loc == state_resume.loc_taxi)
+                           (state_resume.loc_destination == state_resume.loc_passenger)
 
         finish_act = (self.finish_action is None) \
                      or (self.finish_action == state_resume.last_performed_act)
@@ -154,11 +153,11 @@ class DropOff(TaxiTask):
         return self.status
 
 
-class ReachPassenger(TaxiTask):
+class FindPassenger(TaxiTask):
     task_id = 3
 
     def __init__(self, passenger_in_taxi, *args,**kwargs):
-        super(ReachPassenger, self).__init__(*args,**kwargs)
+        super(FindPassenger, self).__init__(*args, **kwargs)
         self.passenger_in_taxi = passenger_in_taxi
 
     @classmethod
@@ -231,10 +230,46 @@ class ReachDestination(TaxiTask):
 
         return self.status
 
+
+class DropOff(TaxiTask):
+    task_id = 5
+
+    def __init__(self, init_loc, *args, **kwargs):
+        super(DropOff,self).__init__(*args,**kwargs)
+        self.init_loc = init_loc
+
+    @classmethod
+    def is_available(Class, state_resume):
+        return state_resume.passenger_in_taxi
+
+    @classmethod
+    def create(Class, state_resume, **kwargs):
+        init_loc = state_resume.loc_taxi
+        kwargs.setdefault('duration',5)
+        return Class(init_loc, **kwargs)
+
+    def update_status(self, state_resume)-> TaskStatus:
+        self.step += 1
+
+        finish_condition = (not state_resume.passenger_in_taxi) and\
+                           (self.init_loc == state_resume.loc_passenger)
+
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == state_resume.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+        return self.status
+
 tasks_dict = dict(
     pickup=PickUp,
     dropoff=DropOff,
-    reach_p=ReachPassenger,
+    find_p=FindPassenger,
+    convey_p=ConveyPassenger,
     reach_d=ReachDestination,
     full_taxi=FullTaxi
 )
