@@ -9,7 +9,7 @@ import utils
 from utils import eval_warehouse as evaluate
 from networks import warehouse_nets
 from collections import namedtuple
-from multi_task import MultiTaskPAAC
+from multi_task import MultiTaskActorCritic
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
@@ -68,7 +68,7 @@ def main(args):
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = MultiTaskPAAC(network_creator, batch_env, args)
+        learner = MultiTaskActorCritic(network_creator, batch_env, args)
         learner.set_eval_function(eval_network, learner.network, env_creator, 16, verbose=True)
         learner.train()
     finally:

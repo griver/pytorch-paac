@@ -59,3 +59,9 @@ class TaxiEmulator(MazebaseEmulator):
             reward, self.game.task(), info
         ))
         self.game.display()
+
+    def set_map_size(self, min_x, max_x, min_y, max_y):
+        return self.game.set_map_size(min_x, max_x, min_y, max_y)
+
+    def update_map_size(self, *deltas):
+        return self.game.update_map_size(*deltas)

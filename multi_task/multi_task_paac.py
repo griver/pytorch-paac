@@ -18,7 +18,7 @@ TrainingStats = namedtuple("TrainingStats",
                                 'term_prec', 't_ratio', 'p_ratio'])
 
 
-class MultiTaskPAAC(ParallelActorCritic):
+class MultiTaskActorCritic(ParallelActorCritic):
 
     class RolloutData(object):
         __slots__ = [
@@ -40,7 +40,7 @@ class MultiTaskPAAC(ParallelActorCritic):
             self.tasks_status = tasks_status
 
     def __init__(self, network, batch_env, args):
-        super(MultiTaskPAAC, self).__init__(network, batch_env, args)
+        super(MultiTaskActorCritic, self).__init__(network, batch_env, args)
         self._term_model_coef = args.termination_model_coef
         logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
         class_weights = th.tensor(args.term_weights).to(self.device, th.float32)

@@ -8,7 +8,7 @@ from collections import namedtuple
 from emulators import TaxiGamesCreator
 import utils
 import utils.eval_taxi as evaluate
-from multi_task import MultiTaskPAAC
+from multi_task import MultiTaskActorCritic
 from networks import taxi_nets, preprocess_taxi_input
 
 from train import args_to_str, concurrent_emulator_handler, set_exit_handler
@@ -82,8 +82,8 @@ def main(args):
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = MultiTaskPAAC(network, batch_env, args)
-        learner.evaluate = lambda net:eval_network(net, env_creator, 50)
+        learner = MultiTaskActorCritic(network, batch_env, args)
+        learner.evaluate = lambda net:eval_network(net, env_creator, 3)
         learner.train()
     finally:
         batch_env.close()

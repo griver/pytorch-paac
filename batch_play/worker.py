@@ -12,6 +12,7 @@ class WorkerProcess(Process):
         CLOSE = 0
         NEXT = 1
         RESET = 2
+        CALL_METHOD = 3
 
     def __init__(self, id, create_emulators, queue, barrier, required_vars, extra_outputs):
         super(WorkerProcess, self).__init__()
@@ -48,7 +49,8 @@ class WorkerProcess(Process):
         emulators = self.create_emulators()
         try:
             while True:
-                command = self.queue.get()
+                command, data = self.queue.get()
+
                 if command == self.Command.NEXT:
                     for i, (emulator, action) in enumerate(zip(emulators, self.action)):
                         new_s, reward, is_done, info = emulator.next(action)
@@ -61,17 +63,29 @@ class WorkerProcess(Process):
                         for k in self.info:
                             self.info[k][i] = info[k]
                     self.barrier.put(True)
+
+                elif command == self.Command.CALL_METHOD:
+                    self._call_method(emulators, **data)
+
                 elif command == self.Command.RESET:
                     for i, emulator in enumerate(emulators):
                         self.state[i], info = emulator.reset()
                         for k in self.info:
                             self.info[k][i] = info[k]
                     self.barrier.put(True)
+
                 elif command == self.Command.CLOSE:
                     break
+
                 else:
                     raise WorkerError("{} has received unknown command {}".format(type(self),command))
         finally:
             for emulator in emulators: emulator.close()
             logging.debug('WorkerProcess#{} finished!'.format(self.id+1))
 
+    def _call_method(self, emulators, method_name, arg_list):
+        results = [None]*len(emulators)
+        for i, emulator in enumerate(emulators):
+            args, kwargs = arg_list[i]
+            results[i] = getattr(emulator, method_name)(*args, **kwargs)
+        self.barrier.put(results)

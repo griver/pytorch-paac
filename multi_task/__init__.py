@@ -1,1 +1,1 @@
-from .multi_task_paac import MultiTaskPAAC
+from .multi_task_paac import MultiTaskActorCritic

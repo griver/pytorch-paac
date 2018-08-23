@@ -119,6 +119,8 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self.episode_steps = 0
         em_seed = kwargs.get('random_seed')
         self.rnd = np.random.RandomState(em_seed)
+
+        self.future_map_size = kwargs['map_size'] # map_size we'll use in the next episode
         #BaseMaseGame.__init__ calls self.reset(), so we need to create all feilds before the call
         super(TaxiMultiTask, self).__init__(**kwargs)
         # Here we directly modify BaseMazeGame.__all_possible_features property:
@@ -130,6 +132,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         return choice(self.reset_configs)
 
     def _reset(self):
+        self.map_size = self.future_map_size
         super(TaxiMultiTask, self)._reset()
         #print('=============RESET====================')
         self.current_task = None
@@ -160,7 +163,6 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self.episode_steps = -1 # see the self._step() comment
 
         self._info = {}
-
 
     def _get_placement_locs(self, agent_loc, n_required):
         for _ in range(10):
@@ -273,6 +275,24 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             return 1 if p.is_pickedup else dist(a.location, p.location)+2
         elif task is None:
             return 0
+
+
+    def set_map_size(self, min_x, max_x, min_y, max_y):
+        """
+        Set new map size constraints for a next episode
+        """
+        self.future_map_size = (min_x, max_x, min_y, max_y)
+        return self.future_map_size
+
+    def update_map_size(self, *deltas):
+        """
+        Update map size constraints for a next episode
+        Receives delta values for map size constraints
+        """
+        if len(deltas) != 4:
+            raise ValueError('update_map_size expects four deltas for the min_x, max_x, min_y, max_y constraints')
+        self.future_map_size = (val+delta for delta, val in zip(deltas, self.future_map_size))
+        return self.future_map_size
 
 
 class FixedTaxiMultiTask(TaxiMultiTask):

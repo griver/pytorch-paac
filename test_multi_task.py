@@ -102,8 +102,8 @@ if __name__=='__main__':
 
     checkpoint_path = utils.join_path(
         args.folder,
-        train.MultiTaskPAAC.CHECKPOINT_SUBDIR,
-        train.MultiTaskPAAC.CHECKPOINT_LAST
+        train.MultiTaskActorCritic.CHECKPOINT_SUBDIR,
+        train.MultiTaskActorCritic.CHECKPOINT_LAST
     )
     env_creator = train.TaxiGamesCreator(**vars(args))
     network = train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
