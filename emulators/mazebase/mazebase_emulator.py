@@ -43,7 +43,8 @@ class MazebaseEmulator(BaseEnvironment):
 
     def __init__(self, emulator_id, game, full_view=False, verbose=0,
                  view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE,
-                 random_seed=17, finish_action=False, fail_reward=0., **unknown):
+                 random_seed=17, finish_action=False, fail_reward=0.,
+                 single_task_episodes=False, **unknown):
         if verbose >= 2:
             logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
@@ -62,7 +63,8 @@ class MazebaseEmulator(BaseEnvironment):
                              max_episode_steps=300,
                              random_seed=game_seed,
                              finish_action=finish_action,
-                             fail_reward=fail_reward)
+                             fail_reward=fail_reward,
+                             single_task_episodes=single_task_episodes)
 
         state, _, _, _ = self._observe() #masebase resets games during __init__
         self.observation_shape = state.shape

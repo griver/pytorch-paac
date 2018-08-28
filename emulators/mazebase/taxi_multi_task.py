@@ -75,7 +75,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
     @staticmethod
     def get_reset_configs():
         configs = [
-            # passenger stats inside the taxi
+            # passenger starts inside the taxi
             TaxiResetConfig(passenger_taxi=Relation.INSIDE,
                             passenger_destination=Relation.FAR,
                             taxi_destination=Relation.FAR),
@@ -98,27 +98,30 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             ]
         return configs
 
-
-    def __init__(self, **kwargs):
-        self.max_steps = kwargs.get('max_episode_steps', 300)
+    def __init__(self,
+                 random_seed,
+                 max_episode_steps=300,
+                 finish_action=False,
+                 success_reward=1.1,
+                 fail_reward=0.,
+                 single_task_episodes=False,
+                 **kwargs):
+        self.max_episode_steps = max_episode_steps
         self.reset_configs = self.get_reset_configs()
 
-        finish_action = 'pass' if kwargs['finish_action'] else None
-        if kwargs['finish_action']:
-            print('finish_action flag is provided!')
+        finish_action = 'pass' if finish_action else None
         self.task_manager = TaskManager(
             ['pickup','find_p','convey_p'],
             extra_task_kwargs={"finish_action":finish_action}
         )
-
-        self.completion_reward = kwargs.get('completion_reward', 1.1)
-        self.fail_reward = kwargs.get('fail_reward',0.)
+        self.single_task = single_task_episodes #episode equals one task
+        self.completion_reward = success_reward
+        self.fail_reward = fail_reward
         self.agent_cls = RestrainedMultiTaskTaxiAgent
         self.current_config = None
         self.current_task = None
         self.episode_steps = 0
-        em_seed = kwargs.get('random_seed')
-        self.rnd = np.random.RandomState(em_seed)
+        self.rnd = np.random.RandomState(random_seed)
 
         self.future_map_size = kwargs['map_size'] # map_size we'll use in the next episode
         #BaseMaseGame.__init__ calls self.reset(), so we need to create all feilds before the call
@@ -163,6 +166,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self.episode_steps = -1 # see the self._step() comment
 
         self._info = {}
+        self._tasks_history = []
 
     def _get_placement_locs(self, agent_loc, n_required):
         for _ in range(10):
@@ -225,6 +229,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         else:
             self._info['task_status']=self.current_task.update_status(self.state_resume())
             if not self.current_task.running():
+                self._tasks_history.append(self.current_task.as_info_dict())
                 self._respawn_passenger_if_needed(self._info['task_status'])
                 self.current_task = self.task_manager.next(self.state_resume(), self.rnd)
 
@@ -257,7 +262,9 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         )
 
     def _finished(self):
-        return self.episode_steps >= self.max_steps
+        if self.single_task and len(self._tasks_history):
+            return True
+        return self.episode_steps >= self.max_episode_steps
 
     def min_steps_to_complete(self,):
         raise NotImplementedError()
@@ -276,6 +283,8 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         elif task is None:
             return 0
 
+    def get_tasks_history(self):
+        return self._tasks_history
 
     def set_map_size(self, min_x, max_x, min_y, max_y):
         """

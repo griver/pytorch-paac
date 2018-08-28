@@ -26,6 +26,10 @@ TrainingStats = namedtuple("TrainingStats",
                             'mean_steps','term_acc','term_rec',
                             'term_prec','t_ratio', 'p_ratio'])
 
+ExtraTrainingStats = namedtuple("TrainingStats",
+                           ['mean_r','max_r','min_r','std_r',
+                            'mean_steps','term_acc','term_rec',
+                            'term_prec','task_stats'])
 
 def eval_network(network, env_creator, num_episodes,
                  greedy=False, term_threshold=0.5, verbose=True):
@@ -34,12 +38,16 @@ def eval_network(network, env_creator, num_episodes,
         specific_emulator_args={'single_life_episodes':False}
     )
     try:
-        num_steps, rewards, done_preds = evaluate.stats_eval(network, emulator,
-                                                             greedy=greedy,
-                                                             termination_threshold=term_threshold)
+        num_steps, rewards, extras = evaluate.stats_eval(
+            network, emulator,
+            greedy=greedy,
+            termination_threshold=term_threshold
+        )
     finally:
         emulator.close()
         set_exit_handler()
+    done_preds = extras['done_pred_stats']
+    task_stats = extras['task_stats']
 
     mean_steps = np.mean(num_steps)
     min_r, max_r = np.min(rewards), np.max(rewards)
@@ -50,10 +58,10 @@ def eval_network(network, env_creator, num_episodes,
     targets_ratio = done_preds.targets_ratio
     preds_ratio = done_preds.predictions_ratio
 
-    stats = TrainingStats(
+    stats = ExtraTrainingStats(
         mean_r=mean_r, min_r=min_r, max_r=max_r, std_r=std_r,
         term_acc=acc, term_prec=prec, term_rec=rec,
-        mean_steps=mean_steps, t_ratio=targets_ratio, p_ratio=preds_ratio
+        mean_steps=mean_steps, task_stats=task_stats.logging_form()
     )
 
     if verbose:
@@ -63,7 +71,10 @@ def eval_network(network, env_creator, num_episodes,
             'Mean R: {0:.2f} | Std of R: {1:.3f}'.format(mean_r, std_r),
             'Termination Predictor:',
             'Acc: {:.2f}% | Precision: {:.2f} | Recall: {:.2f}'.format(acc, prec, rec),
-            'Class 1 ratio. Targets: {:.2f}% Preds: {:.2f}%'.format(targets_ratio, preds_ratio)]
+            'Class 1 ratio. Targets: {:.2f}% Preds: {:.2f}%'.format(targets_ratio, preds_ratio),
+            'Task Statistics:',
+            str(task_stats),
+        ]
         logging.info(utils.red('\n'.join(lines)))
 
     return stats
@@ -83,7 +94,7 @@ def main(args):
     try:
         batch_env.start_workers()
         learner = MultiTaskActorCritic(network, batch_env, args)
-        learner.evaluate = lambda net:eval_network(net, env_creator, 3)
+        learner.evaluate = lambda net:eval_network(net, env_creator, 50)
         learner.train()
     finally:
         batch_env.close()
@@ -154,8 +165,6 @@ def get_arg_parser():
                         help='Weight of the termination model loss in the total loss'+show_default)
     parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
                         help='Class weights for the termination classifier loss.'+show_default)
-    parser.add_argument('--warmup', default=0, type=int,
-                        help='A number of steps for wich we train only actor-critic!'+show_default)
     #args that common for any model that learns on parallel environments:
     parser.add_argument('-d', '--device', default=default_device, type=str, choices=devices, dest="device",
                         help="Device to be used ('cpu' or 'cuda'). Use CUDA_VISIBLE_DEVICES to specify a particular GPU" + show_default)
