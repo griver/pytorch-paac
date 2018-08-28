@@ -69,5 +69,7 @@ class TaxiGamesCreator(MazebaseGamesCreator):
                                help='Random seed for environments.'+show_default)
         argparser.add_argument('-fa', '--finish_action', action='store_true',
                                help='If provided an agent have to perform special action at the end of each task to complete it.')
-        argparser.add_argument('-fr', '--fail_reward', type=float, default=0., dest='fail_reward',
+        argparser.add_argument('-fr', '--fail_reward', type=float, default=-0.8, dest='fail_reward',
                                help='If agent fails current task it gets fail_reward')
+        argparser.add_argument('--single_task_episodes', action='store_true',
+                               help="if provided each episode equals one subtask")

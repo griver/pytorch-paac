@@ -44,8 +44,10 @@ class TaxiTask(object):
 
     def as_info_dict(self):
         return {
-            'task_id':self.task_id,
-            'task_status':int(self.status)
+            'name': type(self).__name__,
+            'id':self.task_id,
+            'status':int(self.status),
+            'num_steps':self.step
         }
 
     def __str__(self):
@@ -282,6 +284,7 @@ class AbstractTaskManager(object):
     def required_state_vars(self):
         raise NotImplementedError('This method is not implemented yet!')
 
+
 class TaskManager(AbstractTaskManager):
     """
     Creates a new task available in the current game state.
@@ -332,3 +335,43 @@ class TaskManager(AbstractTaskManager):
         all_vars = [task_cls.required_state_vars for task_cls in self._task_types]
         all_required_vars.update(*all_vars)
         return all_required_vars
+
+
+class TaskStats(object):
+    """Stores information about agent's success rate in completing subtasks."""
+    def __init__(self):
+        self._stats = {}
+
+    def add_task_history(self, task_history):
+        for task_info in task_history:
+            t_name = task_info['name']
+            t_data = self._stats.setdefault(t_name, {
+                'status':[],
+                'num_steps':[]
+            })
+            t_data['num_steps'].append(task_info['num_steps'])
+            t_data['status'].append(task_info['status'])
+
+    def __str__(self):
+        lines = []
+        for k in sorted(self._stats):
+            data = self._stats[k]
+            statuses = np.array(data['status']) == TaskStatus.SUCCESS
+            success = statuses.mean() * 100
+            mean_steps = np.mean(data['num_steps'])
+            num_tasks = len(statuses)
+            lines.append(
+                "{}({}): success={:.1f}% num_steps={:.1f}".format(
+                    k,num_tasks,success, mean_steps)
+            )
+        return '\n'.join(lines)
+
+    def logging_form(self):
+        logging_dict = {}
+        for k in sorted(self._stats):
+            data = self._stats[k]
+            statuses = np.array(data['status']) == TaskStatus.SUCCESS
+            success = statuses.mean() * 100
+            mean_steps = np.mean(data['num_steps'])
+            logging_dict[k] = {'success':success, 'mean_steps':mean_steps}
+        return logging_dict

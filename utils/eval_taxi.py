@@ -6,7 +6,7 @@ from torch.distributions import Categorical
 import logging, copy
 from .utils import BinaryClassificationStats
 from .evaluate import model_evaluation
-
+from emulators.mazebase.taxi_tasks import TaskStats
 
 def set_user_defined_episodes(env):
     """
@@ -128,6 +128,8 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
         return outputs
 
     for episode in range(num_episodes):
+        if 'env' in locals():
+            env.reset()
         print('=============== Episode #{} ================='.format(episode))
         env = env_creator.create_environment(np.random.randint(1000))
         try:
@@ -152,7 +154,7 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
                 print('#{0} v_t={1:.3f} a_t={2}'.format(t, model_info['values'].item(),
                                                            env.legal_actions[act]), end=' ')
                 print('P_t(done)={0:.3f}'.format(model_info['done_probs'][0,1].item()))
-                input('Press any button to continue..\n')
+                #input('Press any button to continue..\n')
 
                 state, reward, is_done, info = unsqueeze(env.next(act))
                 mask[0] = 1.-is_done
@@ -176,6 +178,7 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
     assert network.training == False, 'You should set the network to eval mode before testing!'
 
     auto_reset = getattr(batch_emulator, 'auto_reset', True)
+    assert auto_reset is False, 'The way we collect statistics about subtasks will not work with emulator that automatically resets episodes!'
     device = network._device
     num_envs = batch_emulator.num_emulators
     num_episodes = num_episodes if num_episodes else num_envs
@@ -195,7 +198,6 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
         'greedy': greedy,
         'termination_threshold':termination_threshold
     }
-
     termination_model_stats = BinaryClassificationStats()
 
     for t in itertools.count():
@@ -203,6 +205,7 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
         acts, done_preds, rnn_state, _ = outputs
 
         state, reward, is_done, info =  batch_emulator.next(acts)
+
         mask[:,0] = th.from_numpy(1.-is_done).to(device) #mask isn't used anywhere else, thus we can just rewrite it.
         #determine emulators states and collect stats about episodes' rewards and lengths:
         running = np.logical_not(terminated)
@@ -221,6 +224,7 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
         masked_done_targets[masked_done_targets != 1] = 0 # merge Fail(2) and Running(0) statuses
         termination_model_stats.add_batch(masked_done_preds, masked_done_targets)
 
+
         if len(episode_rewards) >= num_episodes: break
         if not auto_reset:
             terminated = np.logical_or(terminated, is_done)
@@ -228,7 +232,15 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
                 states, infos = batch_emulator.reset_all()
                 terminated[:] = False
 
-    return episode_steps, episode_rewards, termination_model_stats
+    #this won't work correctly with emulators that autreset finished episodes:
+    tasks_stats = TaskStats()
+    histories = batch_emulator.call_method(
+        'get_tasks_history',
+        [([],{}) for _ in range(num_envs)])
+    for h in histories:
+        tasks_stats.add_task_history(h)
+    extra_stats = {'done_pred_stats':termination_model_stats, 'task_stats':tasks_stats}
+    return episode_steps, episode_rewards, extra_stats
 
 
 def choose_action(network, state, info, mask, rnn_state, **kwargs):

@@ -65,3 +65,6 @@ class TaxiEmulator(MazebaseEmulator):
 
     def update_map_size(self, *deltas):
         return self.game.update_map_size(*deltas)
+
+    def get_tasks_history(self):
+        return self.game.get_tasks_history()
