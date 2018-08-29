@@ -26,7 +26,7 @@ TrainingStats = namedtuple("TrainingStats",
                             'mean_steps','term_acc','term_rec',
                             'term_prec','t_ratio', 'p_ratio'])
 
-ExtraTrainingStats = namedtuple("TrainingStats",
+ExtraTrainingStats = namedtuple("ExtraTrainingStats",
                            ['mean_r','max_r','min_r','std_r',
                             'mean_steps','term_acc','term_rec',
                             'term_prec','task_stats'])

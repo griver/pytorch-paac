@@ -128,8 +128,6 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
         return outputs
 
     for episode in range(num_episodes):
-        if 'env' in locals():
-            env.reset()
         print('=============== Episode #{} ================='.format(episode))
         env = env_creator.create_environment(np.random.randint(1000))
         try:
@@ -154,12 +152,12 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
                 print('#{0} v_t={1:.3f} a_t={2}'.format(t, model_info['values'].item(),
                                                            env.legal_actions[act]), end=' ')
                 print('P_t(done)={0:.3f}'.format(model_info['done_probs'][0,1].item()))
-                #input('Press any button to continue..\n')
+                input('Press any button to continue..\n')
 
                 state, reward, is_done, info = unsqueeze(env.next(act))
                 mask[0] = 1.-is_done
-                print('R_t: {:.2f} total_r: {:.2f}'.format(reward, total_r))
                 total_r += reward
+                print('R_t: {:.2f} total_r: {:.2f}'.format(reward, total_r))
                 print('-------------Step #{}----------------'.format(t))
                 display()
                 print('current task:', task())

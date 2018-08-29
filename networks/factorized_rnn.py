@@ -23,7 +23,14 @@ def lstm_size(input_size, hidden_size, bias=True):
 
 
 class DiagonalLSTMCell(rnn.RNNCellBase):
-    def __init__(self, input_size, hidden_size, num_task, task_embed_size=100, bias=True):
+    def __init__(
+      self,
+      input_size,
+      hidden_size,
+      num_task,
+      task_embed_size=100,
+      bias=True
+    ):
         super(DiagonalLSTMCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -44,13 +51,30 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
 
         self.reset_parameters()
 
-
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.hidden_size)
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
 
     def forward(self, input, hx, task_ids):
+        self.check_forward_input(input)
+        self.check_forward_hidden(input, hx[0], '[0]')
+        self.check_forward_hidden(input, hx[1], '[1]')
+        W_ih, W_hh = self.restore_weights_batch(task_ids)
+        return batch_weights_lstm_forward(
+            input, hx,
+            W_ih, W_hh,
+            self.bias_ih, self.bias_hh
+        )
+
+    def restore_weights_batch(self, task_ids):
+        task_embeds = self.embedding(task_ids)
+        diag_embeds = th.stack([th.diag(e) for e in task_embeds])
+        W_ih = th.matmul(th.matmul(self.weight_ih1, diag_embeds), self.weight_ih2)
+        W_hh = th.matmul(th.matmul(self.weight_hh1, diag_embeds), self.weight_hh2)
+        return W_ih, W_hh
+
+    def forward_old(self, input, hx, task_ids):
         self.check_forward_input(input)
         self.check_forward_hidden(input, hx[0], '[0]')
         self.check_forward_hidden(input, hx[1], '[1]')
@@ -62,7 +86,7 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
         new_hx, new_cx = [None]*batch_size, [None]*batch_size
 
         for t in range(batch_size):
-            W_ih, W_hh = self.restore_weights(task_ids[t])
+            W_ih, W_hh = self.restore_weights_old(task_ids[t])
             new_hx[t], new_cx[t] = cell(
                 input[t:t+1],
                 (hx[t:t+1],cx[t:t+1]),
@@ -71,22 +95,7 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
             )
         return th.cat(new_hx), th.cat(new_cx)
 
-    def forward2(self, input, hx, task_ids):
-        self.check_forward_input(input)
-        self.check_forward_hidden(input, hx[0], '[0]')
-        self.check_forward_hidden(input, hx[1], '[1]')
-        W_ih, W_hh = self.restore_weights_batch(task_ids)
-        return batch_weights_lstm_forward(input, hx, W_ih, W_hh, self.bias_ih, self.bias_hh)
-
-
-    def restore_weights_batch(self, task_ids):
-        task_embeds = self.embedding(task_ids)
-        diag_embeds = th.stack([th.diag(e) for e in task_embeds])
-        W_ih = th.matmul(th.matmul(self.weight_ih1, diag_embeds), self.weight_ih2)
-        W_hh = th.matmul(th.matmul(self.weight_hh1, diag_embeds), self.weight_hh2)
-        return W_ih, W_hh
-
-    def restore_weights(self, task_ids):
+    def restore_weights_old(self, task_ids):
         task_embed = self.embedding(task_ids)
         task_diag = th.diag(task_embed)
         W_ih = th.mm(th.mm(self.weight_ih1,task_diag),self.weight_ih2)
@@ -94,42 +103,15 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
         return W_ih, W_hh
 
 
-def batch_linear(input_batch, weight_batch, bias=None):
-        """
-        Applies a linear transformation to the incoming data: :math:`y = xA^T + b`.
-
-        Shape:
-            - Input: :math:`(N, in\_features)`
-            - Weight: :math:`(N, out\_features, in\_features)`
-            - Bias: :math:`(out\_features)`
-            - Output: :math:`(N, *, out\_features)`
-        """
-        input = input.unsqueeze(-1) #shape (N, in_features, 1)
-        if input.dim() == 3 and bias is not None:
-            # fused op is marginally faster
-            return th.baddbmm(bias, weight_batch, input).squeeze(-1)
-
-        output = th.bmm(weight_batch, input).squeeze(-1)
-        if bias is not None:
-            output += bias
-        return output
-
-
 def batch_weights_lstm_forward(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None):
     """
     the main difference with LSTMCell function from torch.nn._functions.rnn.py
     is that layer weights comes in a batch!
-    That's right instead of tensor of shape (input_size, hidden_size) this function expects
-    w_ih to be of shape (batch_size, input_size, hidden_size). This weird shape comes from the fact that
-    the weights for the task specific LSTM depend on the current tasks.
 
-    :param input:
-    :param hidden:
-    :param w_ih:
-    :param w_hh:
-    :param b_ih:
-    :param b_hh:
-    :return:
+    That's right instead of a tensor of shape (input_size, hidden_size) this
+    function expects a tensor of shape (batch_size, input_size, hidden_size).
+    This weird shape comes from the fact that the weights for the task
+    specific LSTM depend on the current tasks.
     """
     if input.is_cuda:
         igates = batch_linear(input, w_ih)
@@ -151,3 +133,24 @@ def batch_weights_lstm_forward(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None):
     hy = outgate * F.tanh(cy)
 
     return hy, cy
+
+
+def batch_linear(input_batch, weight_batch, bias=None):
+    """
+    Applies a linear transformation to the incoming data: :math:`y = xA^T + b`.
+
+    Shape:
+        - Input: :math:`(N, in\_features)`
+        - Weight: :math:`(N, out\_features, in\_features)`
+        - Bias: :math:`(out\_features)`
+        - Output: :math:`(N, *, out\_features)`
+    """
+    input = input_batch.unsqueeze(-1)  #shape (N, in_features, 1)
+    if input.dim() == 3 and bias is not None:
+        bias = bias.unsqueeze(-1)
+        return th.baddbmm(bias, weight_batch, input).squeeze(-1)
+
+    output = th.bmm(weight_batch, input).squeeze(-1)
+    if bias is not None:
+        output += bias
+    return output

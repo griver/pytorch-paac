@@ -121,8 +121,6 @@ class MultiTaskActorCritic(ParallelActorCritic):
         log_terminals = log_terminals[ep_masks,:]
 
         term_loss = self._term_model_loss(log_terminals, target=tasks_status)
-
         loss_data = {'term_loss':term_loss.item()}
-
 
         return term_loss, loss_data
