@@ -57,7 +57,8 @@ def get_argparser(eval_modes, default_mode, devices, available_games):
                              'given  then parameters from training config are used.')
     parser.add_argument('-tg', '--test_game', type=str, default=None, choices=available_games,
                         help='if test_game is not given, then the game from the training config is used')
-
+    parser.add_argument('--single_task_episodes', action='store_true',
+                           help="if provided each episode equals one subtask")
     return parser
 
 
@@ -80,7 +81,7 @@ def fix_args_for_test(args, train_args):
     for k, v in train_args.items():
         if getattr(args, k, None) == None:
             setattr(args, k, v)
-
+            
     args.max_global_steps = 0
     args.initial_lr = 0.
     args.random_seed = np.random.randint(1000)

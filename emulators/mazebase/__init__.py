@@ -61,8 +61,10 @@ class TaxiGamesCreator(MazebaseGamesCreator):
         argparser.add_argument('-m', '--map_size', nargs=4, type=int, default=[5, 5, 5, 5],
                                help='Size of the environment. Expected format is (min_x, max_x, min_y, max_y).' +
                                     ' At the beggining of a new episode (x,y) will be drawn uniformly of a new environment will be drawn uniformly from it' + show_default)
-        argparser.add_argument('-f', '--full_view', action='store_true',
-                               help='If the flag is provided then an agent will receive a full map view as an observation.' + show_default)
+        #argparser.add_argument('-f', '--full_view', action='store_true',
+        #                       help='If the flag is provided then an agent will receive a full map view as an observation.' + show_default)
+        argparser.add_argument('--view_size', type=int, default=5,
+                               help='Determines how far agent can see the map around him.')
         argparser.add_argument('--gamma', default=0.99, type=float, dest="gamma",
                                help="Discount factor" + show_default, )
         argparser.add_argument('--random_seed', default=14, type=int, dest='random_seed',
@@ -73,3 +75,5 @@ class TaxiGamesCreator(MazebaseGamesCreator):
                                help='If agent fails current task it gets fail_reward')
         argparser.add_argument('--single_task_episodes', action='store_true',
                                help="if provided each episode equals one subtask")
+        argparser.add_argument('--max_episode_steps', type=int, default=300,
+                               help='Maximum number of steps in each episode')

@@ -236,6 +236,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         # task_id and task_status are intended to relate to each other
         # like state and is_done variables in a typical environment
         self._info['task_id']=self.current_task.task_id
+        self._info['agent_loc'] = self._featurize_coords(self.agent.location)
 
     def _respawn_passenger_if_needed(self, last_task_status):
         """
@@ -303,6 +304,14 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self.future_map_size = (val+delta for delta, val in zip(deltas, self.future_map_size))
         return self.future_map_size
 
+    def _featurize_coords(self, location):
+        """
+        convert integer coordinates to float values from [-1,1]
+        """
+        x,y = location
+        x_float = (x/(self.width-1))*2 - 1.
+        y_float = (y/(self.height-1))*2 - 1.
+        return x_float, y_float
 
 class FixedTaxiMultiTask(TaxiMultiTask):
 

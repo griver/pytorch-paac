@@ -134,7 +134,7 @@ class ConveyPassenger(TaxiTask):
 
     @classmethod
     def create(Class, state_resume, **kwargs):
-        kwargs.setdefault('duration',100)
+        kwargs.setdefault('duration',200)
         return Class(**kwargs)
 
     def update_status(self, state_resume)-> TaskStatus:

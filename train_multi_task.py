@@ -18,7 +18,6 @@ import multiprocessing
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE = 'args_multi_task.json'
-VIEW_SIZE = (5,5)
 
 
 TrainingStats = namedtuple("TrainingStats",
@@ -26,10 +25,12 @@ TrainingStats = namedtuple("TrainingStats",
                             'mean_steps','term_acc','term_rec',
                             'term_prec','t_ratio', 'p_ratio'])
 
+
 ExtraTrainingStats = namedtuple("ExtraTrainingStats",
                            ['mean_r','max_r','min_r','std_r',
                             'mean_steps','term_acc','term_rec',
                             'term_prec','task_stats'])
+
 
 def eval_network(network, env_creator, num_episodes,
                  greedy=False, term_threshold=0.5, verbose=True):
@@ -105,7 +106,8 @@ def create_network(args, num_actions, obs_shape):
     device = torch.device(args.device)
     #network explicitly stores device in order to facilitate casting of incoming tensors
     network = NetworkCls(num_actions, obs_shape, device,
-                         preprocess=preprocess_taxi_input)
+                         preprocess=preprocess_taxi_input,
+                         use_location=args.use_location)
     network = network.to(device)
     return network
 
@@ -123,11 +125,9 @@ def handle_command_line():
     def view_size(args):
         #changes view_size if full_view is specified
         min_x, max_x, min_y, max_y = args.map_size
-        if args.full_view:
-            return (max_x, max_y)
-        else:
-            x, y = VIEW_SIZE
-            return (min(x, min_x), min(y, min_y))
+        view = min([max_x, max_y, args.view_size])
+        logging.warning('View size has been changed to match the specified maximum map size')
+        return view, view
 
     args.view_size = view_size(args)
 
@@ -160,6 +160,8 @@ def get_arg_parser():
                       help="default=0.02. Strength of the entropy regularization term"+show_default)
     parser.add_argument('--clip_norm', default=3.0, type=float, dest="clip_norm",
                         help="Grads will be clipped at the specified maximum (average) L2-norm"+show_default)
+    parser.add_argument('-l' '--use_loc', action='store_true', dest='use_location',
+                        help="If provided an agent will use it's coordinates as part of the observation")
     #termination predictor args:
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
                         help='Weight of the termination model loss in the total loss'+show_default)
@@ -178,7 +180,7 @@ def get_arg_parser():
                         help="Number of parallel worker processes to handle the environments. " + show_default)
     #save and print:
     parser.add_argument('-df', '--debugging_folder', default='logs/', type=str, dest="debugging_folder",
-                      help="Folder where to save the debugging information."+show_default)
+                        help="Folder where to save the debugging information."+show_default)
     parser.add_argument('-v', '--verbose', default=1, type=int, dest="verbose",
                         help="determines how much information to show during training" + show_default)
 

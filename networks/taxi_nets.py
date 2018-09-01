@@ -2,17 +2,19 @@ from .paac_nets import torch, nn, F, np, init_model_weights, calc_output_shape
 from .paac_nets import Categorical, BaseAgentNetwork
 from .factorized_rnn import DiagonalLSTMCell
 
-def preprocess_taxi_input(obs, tasks_ids, t_device):
-    obs = torch.from_numpy(np.ascontiguousarray(obs, dtype=np.float32))
+def preprocess_taxi_input(obs, tasks_ids, coords, t_device):
+    obs = np.ascontiguousarray(obs, dtype=np.float32)
     obs = torch.tensor(obs, device=t_device, dtype=torch.float32)
+    coords = torch.tensor(coords, device=t_device, dtype=torch.float32)
     tasks_ids = torch.tensor(tasks_ids.tolist(), device=t_device, dtype=torch.long)
-    return obs, tasks_ids
+    return obs, tasks_ids, coords
 
 
 class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
     def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=5, task_embed_dim=128, preprocess=None):
+                 num_tasks=5, task_embed_dim=128, preprocess=None,
+                 use_location=False):
         super(MultiTaskFFNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -20,33 +22,43 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
         self._task_embed_dim = task_embed_dim
         self._num_tasks = num_tasks
         self._preprocess = preprocess if preprocess is not None else lambda *args: args
+        self.use_location = use_location
         self._create_network()
-
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train if self.training is False"
 
     def _create_network(self):
         C, H, W = self._obs_shape #(channels, height, width)
-        self.conv1 = nn.Conv2d(C, 16, (3,3), stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, (3,3), stride=1, padding=1)
+        pad = 1 if H <= 5 else 0
+
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
         C_out, H_out, W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
         #fc3 receives flattened conv network output + current task embedding
-        self.fc3 = nn.Linear(C_out*H_out*W_out + self._task_embed_dim, 256)
+        flatten_size = C_out*H_out*W_out + self._task_embed_dim
+        if self.use_location:
+            flatten_size += 2 #+ agent's location if specified
+
+        self.fc3 = nn.Linear(flatten_size, 256)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
 
     def forward(self, obs, infos, masks, net_state):
-        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
+        task_ids, coords = infos['task_id'], infos['agent_loc']
+        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
         #conv
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         #task embed:
-        task_vecs = self.embed1(task_ids)
-        x = torch.cat((x, task_vecs), 1)
+        task_ids = self.embed1(task_ids)
+        if self.use_location:
+            x = torch.cat((x, task_ids, coords), 1)
+        else:
+            x = torch.cat((x, task_ids), 1)
         #fc3(conv(obs) + embed(tasks))
         x = F.relu(self.fc3(x))
 
@@ -70,7 +82,8 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
 class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=6, task_embed_dim=128, preprocess=None):
+                 num_tasks=6, task_embed_dim=128, preprocess=None,
+                 use_location=False):
         super(MultiTaskLSTMNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -78,33 +91,42 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
         self._task_embed_dim = task_embed_dim
         self._num_tasks = num_tasks
         self._preprocess = preprocess if preprocess is not None else lambda *args: args
+        self.use_location = use_location
         self._create_network()
-
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
 
     def _create_network(self):
         C,H,W = self._obs_shape
-        self.conv1 = nn.Conv2d(C, 16, (3,3), stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, (3,3), stride=1, padding=1)
+        pad = 1 if H <= 5 else 0
+
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
         C_out,H_out,W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
-
-        self.lstm = nn.LSTMCell(C_out*H_out*W_out + self._task_embed_dim, 256, bias=True)
+        flatten_size = C_out * H_out * W_out + self._task_embed_dim
+        if self.use_location:
+            flatten_size += 2
+        self.lstm = nn.LSTMCell(flatten_size, 256, bias=True)
         self.fc_policy = nn.Linear(256, self._num_actions)
         self.fc_value = nn.Linear(256, 1)
         self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
 
     def forward(self, obs, infos, masks, net_state):
-        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
+        task_ids, coords = infos['task_id'], infos['agent_loc']
+        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
         #obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
         #task embeds:
-        task_ids = self.embed1(task_ids)
-        x = torch.cat((x, task_ids), 1)
+        tasks = self.embed1(task_ids)
+        if self.use_location:
+            x = torch.cat((x, tasks, coords), 1)
+        else:
+            x = torch.cat((x, tasks), 1)
+
         #lstm and last layers:
         hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
         hx, cx = self.lstm(x, (hx,cx))
@@ -144,28 +166,33 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def _create_network(self):
         C, H, W = self._obs_shape
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
+        pad = 1 if H <= 5 else 0
+        rnn_hidden = 128
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
 
         C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-        conv_out_size = C_out * H_out * W_out
+        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
 
-        self.env_lstm = nn.LSTMCell(conv_out_size, 128, bias=True)
+        self.env_lstm = nn.LSTMCell(obs_flatten, rnn_hidden, bias=True)
         self.task_lstm = DiagonalLSTMCell(
-            conv_out_size+128, 128,
+            obs_flatten+rnn_hidden, rnn_hidden,
             self._num_tasks,
             self._task_embed_dim
         )
-
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
-        self.fc_terminal = nn.Linear(256, 2)  #  two classes: 0-not_done, 1-is_done
+        self.fc_policy = nn.Linear(2*rnn_hidden, self._num_actions)
+        self.fc_value = nn.Linear(2*rnn_hidden, 1)
+        self.fc_terminal = nn.Linear(2*rnn_hidden, 2)  #  two classes: 0-not_done, 1-is_done
 
     def forward(self, obs, infos, masks, net_state):
-        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
+        task_ids, coords = infos['task_id'], infos['agent_loc']
+        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size(0), -1)
+        if self.use_location:
+            x = torch.cat([x, coords], dim=1)
+
         env_h, env_c = net_state['env_h']*masks, net_state['env_c']*masks
         task_h, task_c = net_state['task_h']*masks, net_state['task_c']*masks
 
@@ -209,23 +236,28 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
     """
     def _create_network(self):
         C, H, W = self._obs_shape
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=1)
+        pad = 1 if H <= 5 else 0
+        num_hidden = 256
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
         C_out,H_out,W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-
-        self.lstm = nn.LSTMCell(C_out*H_out*W_out, 256, bias=True)
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
-        self.fc_terminal = nn.Linear(256, 2)
+        obs_flatten = C_out*H_out*W_out + (2 if self.use_location else 0)
+        self.lstm = nn.LSTMCell(obs_flatten, num_hidden, bias=True)
+        self.fc_policy = nn.Linear(num_hidden, self._num_actions)
+        self.fc_value = nn.Linear(num_hidden, 1)
+        self.fc_terminal = nn.Linear(num_hidden, 2)
 
     def forward(self, obs, infos, masks, net_state):
-        obs, task_ids = self._preprocess(obs, infos['task_id'], self._device)
+        task_ids, coords = infos['task_id'], infos['agent_loc']
+        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size()[0], -1)
+        if self.use_location:
+            x = torch.cat([x, coords], dim=1)
         # lstm and last layers:
         hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
         hx, cx = self.lstm(x, (hx, cx))
