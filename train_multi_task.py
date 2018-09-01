@@ -160,7 +160,7 @@ def get_arg_parser():
                       help="default=0.02. Strength of the entropy regularization term"+show_default)
     parser.add_argument('--clip_norm', default=3.0, type=float, dest="clip_norm",
                         help="Grads will be clipped at the specified maximum (average) L2-norm"+show_default)
-    parser.add_argument('-l' '--use_loc', action='store_true', dest='use_location',
+    parser.add_argument('-l', '--use_loc', action='store_true', dest='use_location',
                         help="If provided an agent will use it's coordinates as part of the observation")
     #termination predictor args:
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
