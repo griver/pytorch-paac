@@ -22,13 +22,13 @@ import logging
 #)
 
 
-def handle_commandline():
+def handle_commandline(command_line=None):
     eval_modes = ['stats', 'visual']#list(eval_mode.keys())
     default_mode = 'stats'
     devices = ['cuda', 'cpu'] if torch.cuda.is_available() else ['cpu']
     available_games = train.TaxiGamesCreator.available_games()
     parser = get_argparser(eval_modes, default_mode, devices, available_games)
-    args = parser.parse_args()
+    args = parser.parse_args(command_line.split()) if command_line else parser.parse_args()
 
     logging.info("Loading training config from {}".format(args.folder))
     train_args = utils.load_args(folder=args.folder, file_name=train.ARGS_FILE)
@@ -119,7 +119,8 @@ if __name__=='__main__':
         num_steps, rewards, extra_stats = eval.visual_eval(
             network, env_creator,
             args.test_count, args.greedy,
-            args.termination_threshold)
+            args.termination_threshold
+        )
 
         print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
         print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))

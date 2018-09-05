@@ -39,6 +39,7 @@ class CompactStateResume(object):
         self.passenger_in_taxi = passenger_in_taxi
         self.last_performed_act = last_performed_act
 
+
 class RestrainedMultiTaskTaxiAgent(TaxiAgent):
     """
     Right now my task generating module works incorrectly with the TaxiAgents.
@@ -65,7 +66,6 @@ class RestrainedMultiTaskTaxiAgent(TaxiAgent):
             self.last_performed_act = action_name
 
         return wrapper
-
 
 
 class TaxiMultiTask(games.WithWaterAndBlocksMixin):
@@ -266,6 +266,16 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         if self.single_task and len(self._tasks_history):
             return True
         return self.episode_steps >= self.max_episode_steps
+
+
+    def distance(self, source_loc, target_loc):
+        #this is slow! don't use this in training, only for testing
+        visited, _ = creationutils.dijkstra(self, source_loc,
+                                            creationutils.agent_movefunc)
+        if target_loc in visited:
+            return visited[target_loc]
+        else:
+            return float('inf')
 
     def min_steps_to_complete(self,):
         raise NotImplementedError()
