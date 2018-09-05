@@ -55,6 +55,8 @@ class TaxiTask(object):
         return "{}: status={}, t={}, lim={}".format(
             task_name, self.status.name, self.step, self.duration)
 
+    def min_steps_to_complete(self, game):
+        raise NotImplementedError()
 
 class FullTaxi(TaxiTask):
     task_id = 0
@@ -84,6 +86,18 @@ class FullTaxi(TaxiTask):
         else:
             self.status = TaskStatus.RUNNING
         return self.status
+
+    def min_steps_to_complete(self, game):
+        p_loc = game.passenger.location
+        a_loc = game.agent.location
+        t_loc = game.target.location
+        passenger_in_taxi = game.passenger.is_pickedup
+        if passenger_in_taxi:
+            return 1 + game.distance(a_loc, t_loc)
+        elif p_loc == t_loc:
+            return 0
+        else:
+            return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, t_loc)
 
 
 class PickUp(TaxiTask):
@@ -120,6 +134,12 @@ class PickUp(TaxiTask):
             self.status = TaskStatus.RUNNING
         return self.status
 
+    def min_steps_to_complete(self, game):
+        passenger_in_taxi = game.passenger.is_pickedup
+        if passenger_in_taxi:
+            return 0
+        else:
+            return 1 + game.distance(game.agent.location, game.passenger.location)
 
 class ConveyPassenger(TaxiTask):
     task_id = 2
@@ -154,6 +174,17 @@ class ConveyPassenger(TaxiTask):
             self.status = TaskStatus.RUNNING
         return self.status
 
+    def min_steps_to_complete(self, game):
+        p_loc = game.passenger.location
+        a_loc = game.agent.location
+        t_loc = game.target.location
+        passenger_in_taxi = game.passenger.is_pickedup
+        if passenger_in_taxi:
+            return 1 + game.distance(a_loc, t_loc)
+        elif p_loc == t_loc:
+            return 0
+        else:
+            return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, t_loc)
 
 class FindPassenger(TaxiTask):
     task_id = 3
@@ -194,6 +225,10 @@ class FindPassenger(TaxiTask):
 
         return self.status
 
+    def min_steps_to_complete(self, game):
+        return game.distance(game.agent.location, game.passenger.location)
+
+
 class ReachDestination(TaxiTask):
     task_id = 4
 
@@ -232,6 +267,8 @@ class ReachDestination(TaxiTask):
 
         return self.status
 
+    def min_steps_to_complete(self, game):
+        return game.distance(game.agent.location, game.target.location)
 
 class DropOff(TaxiTask):
     task_id = 5
@@ -266,6 +303,17 @@ class DropOff(TaxiTask):
         else:
             self.status = TaskStatus.RUNNING
         return self.status
+
+    def min_steps_to_complete(self, game):
+        p_loc = game.passenger.location
+        a_loc = game.agent.location
+        passenger_in_taxi = game.passenger.is_pickedup
+        if passenger_in_taxi:
+            return 1 + game.distance(a_loc, self.init_loc)
+        elif p_loc == self.init_loc:
+            return 0
+        else:
+            return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, self.init_loc)
 
 tasks_dict = dict(
     pickup=PickUp,

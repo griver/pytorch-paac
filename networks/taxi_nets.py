@@ -2,12 +2,16 @@ from .paac_nets import torch, nn, F, np, init_model_weights, calc_output_shape
 from .paac_nets import Categorical, BaseAgentNetwork
 from .factorized_rnn import DiagonalLSTMCell
 
-def preprocess_taxi_input(obs, tasks_ids, coords, t_device):
+def preprocess_taxi_input(obs, infos, t_device):
+
     obs = np.ascontiguousarray(obs, dtype=np.float32)
     obs = torch.tensor(obs, device=t_device, dtype=torch.float32)
-    coords = torch.tensor(coords, device=t_device, dtype=torch.float32)
-    tasks_ids = torch.tensor(tasks_ids.tolist(), device=t_device, dtype=torch.long)
-    return obs, tasks_ids, coords
+
+    coords = torch.tensor(infos['agent_loc'], device=t_device, dtype=torch.float32)
+    tasks_ids = torch.tensor(infos['task_id'].tolist(), device=t_device, dtype=torch.long)
+    task_status = torch.tensor(infos['task_status']).to(t_device)
+    task_mask = (task_status == 0.).to(torch.float32)
+    return obs, tasks_ids, coords, task_mask.unsqueeze(-1)
 
 
 class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
@@ -47,8 +51,7 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
         self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
 
     def forward(self, obs, infos, masks, net_state):
-        task_ids, coords = infos['task_id'], infos['agent_loc']
-        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
+        obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
         #conv
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -115,7 +118,7 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
     def forward(self, obs, infos, masks, net_state):
         task_ids, coords = infos['task_id'], infos['agent_loc']
-        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
+        obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
         #obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
@@ -164,6 +167,10 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
 
 class TaskEnvRNN(MultiTaskLSTMNetwork):
+    def __init__(self, *args, **kwargs):
+        #self.erase_task_memory = kwargs.pop('erase_task_memory', True)
+        super(TaskEnvRNN, self).__init__(*args, **kwargs)
+
     def _create_network(self):
         C, H, W = self._obs_shape
         pad = 1 if H <= 5 else 0
@@ -185,16 +192,16 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
         self.fc_terminal = nn.Linear(2*rnn_hidden, 2)  #  two classes: 0-not_done, 1-is_done
 
     def forward(self, obs, infos, masks, net_state):
-        task_ids, coords = infos['task_id'], infos['agent_loc']
-        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
+        obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
         x = x.view(x.size(0), -1)
         if self.use_location:
             x = torch.cat([x, coords], dim=1)
 
+        t_masks = masks*task_masks # if self.erase_task_memory else masks
         env_h, env_c = net_state['env_h']*masks, net_state['env_c']*masks
-        task_h, task_c = net_state['task_h']*masks, net_state['task_c']*masks
+        task_h, task_c = net_state['task_h']*t_masks, net_state['task_c']*t_masks
 
         env_h, env_c = self.env_lstm(x, (env_h, env_c))
         x_env_h = torch.cat([x, env_h],dim=1)
@@ -250,8 +257,7 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         self.fc_terminal = nn.Linear(num_hidden, 2)
 
     def forward(self, obs, infos, masks, net_state):
-        task_ids, coords = infos['task_id'], infos['agent_loc']
-        obs, task_ids, coords = self._preprocess(obs, task_ids, coords, self._device)
+        obs, _, coords, _ = self._preprocess(obs, infos, self._device)
         # obs embeds:
         x = F.relu(self.conv1(obs))
         x = F.relu(self.conv2(x))
