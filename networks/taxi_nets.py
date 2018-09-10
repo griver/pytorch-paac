@@ -18,7 +18,7 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 
     def __init__(self, num_actions, observation_shape, device,
                  num_tasks=5, task_embed_dim=128, preprocess=None,
-                 use_location=False):
+                 use_location=False, hidden_size=256):
         super(MultiTaskFFNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -27,6 +27,7 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
         self._num_tasks = num_tasks
         self._preprocess = preprocess if preprocess is not None else lambda *args: args
         self.use_location = use_location
+        self._hidden_size = hidden_size
         self._create_network()
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train if self.training is False"
@@ -45,10 +46,10 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
         if self.use_location:
             flatten_size += 2 #+ agent's location if specified
 
-        self.fc3 = nn.Linear(flatten_size, 256)
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
-        self.fc_terminal = nn.Linear(256, 2) # two classes: is_done, not is_done.
+        self.fc3 = nn.Linear(flatten_size, self._hidden_size)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
+        self.fc_terminal = nn.Linear(self._hidden_size, 2) # two classes: is_done, not is_done.
 
     def forward(self, obs, infos, masks, net_state):
         obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
@@ -86,7 +87,7 @@ class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
 class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
                  num_tasks=6, task_embed_dim=128, preprocess=None,
-                 use_location=False):
+                 use_location=False, hidden_size=256):
         super(MultiTaskLSTMNetwork, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -95,6 +96,7 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
         self._num_tasks = num_tasks
         self._preprocess = preprocess if preprocess is not None else lambda *args: args
         self.use_location = use_location
+        self._hidden_size = hidden_size
         self._create_network()
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
@@ -111,10 +113,10 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
         flatten_size = C_out * H_out * W_out + self._task_embed_dim
         if self.use_location:
             flatten_size += 2
-        self.lstm = nn.LSTMCell(flatten_size, 256, bias=True)
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
-        self.fc_terminal = nn.Linear(256, 2) #  two classes: is_done, not_done.
+        self.lstm = nn.LSTMCell(flatten_size, self._hidden_size, bias=True)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
+        self.fc_terminal = nn.Linear(self._hidden_size, 2) #  two classes: is_done, not_done.
 
     def forward(self, obs, infos, masks, net_state):
         task_ids, coords = infos['task_id'], infos['agent_loc']
@@ -168,28 +170,30 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault('hidden_size', 208)
+        #hidden_size=208 gives approximately the same number of parameters as MultiTaskLSTMNetwork(hidden_size=256)
         #self.erase_task_memory = kwargs.pop('erase_task_memory', True)
         super(TaskEnvRNN, self).__init__(*args, **kwargs)
 
     def _create_network(self):
         C, H, W = self._obs_shape
         pad = 1 if H <= 5 else 0
-        rnn_hidden = 128
+
         self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
         self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
 
         C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
         obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
 
-        self.env_lstm = nn.LSTMCell(obs_flatten, rnn_hidden, bias=True)
+        self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
         self.task_lstm = DiagonalLSTMCell(
-            obs_flatten+rnn_hidden, rnn_hidden,
+            obs_flatten+self._hidden_size, self._hidden_size,
             self._num_tasks,
             self._task_embed_dim
         )
-        self.fc_policy = nn.Linear(2*rnn_hidden, self._num_actions)
-        self.fc_value = nn.Linear(2*rnn_hidden, 1)
-        self.fc_terminal = nn.Linear(2*rnn_hidden, 2)  #  two classes: 0-not_done, 1-is_done
+        self.fc_policy = nn.Linear(2*self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(2*self._hidden_size, 1)
+        self.fc_terminal = nn.Linear(2*self._hidden_size, 2)  #  two classes: 0-not_done, 1-is_done
 
     def forward(self, obs, infos, masks, net_state):
         obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
@@ -244,17 +248,17 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
     def _create_network(self):
         C, H, W = self._obs_shape
         pad = 1 if H <= 5 else 0
-        num_hidden = 256
+
         self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
         self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
         C_out,H_out,W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
         obs_flatten = C_out*H_out*W_out + (2 if self.use_location else 0)
-        self.lstm = nn.LSTMCell(obs_flatten, num_hidden, bias=True)
-        self.fc_policy = nn.Linear(num_hidden, self._num_actions)
-        self.fc_value = nn.Linear(num_hidden, 1)
-        self.fc_terminal = nn.Linear(num_hidden, 2)
+        self.lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
+        self.fc_terminal = nn.Linear(self._hidden_size, 2)
 
     def forward(self, obs, infos, masks, net_state):
         obs, _, coords, _ = self._preprocess(obs, infos, self._device)

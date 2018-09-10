@@ -67,6 +67,41 @@ class RestrainedMultiTaskTaxiAgent(TaxiAgent):
 
         return wrapper
 
+class ImageViewMixin(games.BaseMazeGame):
+    def __init__(self, tile_size, tile_paths=None):
+        self.tile_size = tile_size
+
+    def get_image(self):
+        img_width = self.width*self.tile_size
+        img_height = self.height*self.tile_size
+
+        ''' Displays the game map for visualization '''
+        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
+        for y in reversed(range(self.height)):
+            cprint('   ', None, 'on_white', end="")
+            for x in range(self.width):
+                itemlst = sorted(filter(lambda x:x.visible, self._map[x][y]),
+                                 key=lambda x:x.PRIO)
+                disp = [u'   ', None, None, None]
+                for item in itemlst:
+                    config = item._get_display_symbol()
+                    for i, v in list(enumerate(config))[1:]:
+                        if v is not None:
+                            disp[i] = v
+                    s = config[0]
+                    if s is None:
+                        continue
+                    d = list(disp[0])
+                    for i, char in enumerate(s):
+                        if char != ' ':
+                            d[i] = char
+                    disp[0] = "".join(d)
+                text, color, bg, attrs = disp
+                cprint(text, color, bg, attrs, end="")
+            cprint('   ', None, 'on_white')
+        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
+        pass
+
 
 class TaxiMultiTask(games.WithWaterAndBlocksMixin):
     ItemRelation = Relation
@@ -267,7 +302,6 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
             return True
         return self.episode_steps >= self.max_episode_steps
 
-
     def distance(self, source_loc, target_loc):
         #this is slow! don't use this in training, only for testing
         visited, _ = creationutils.dijkstra(self, source_loc,
@@ -322,6 +356,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         x_float = (x/(self.width-1))*2 - 1.
         y_float = (y/(self.height-1))*2 - 1.
         return x_float, y_float
+
 
 class FixedTaxiMultiTask(TaxiMultiTask):
 
