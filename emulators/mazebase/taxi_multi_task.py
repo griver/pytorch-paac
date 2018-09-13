@@ -67,6 +67,7 @@ class RestrainedMultiTaskTaxiAgent(TaxiAgent):
 
         return wrapper
 
+
 class ImageViewMixin(games.BaseMazeGame):
     def __init__(self, tile_size, tile_paths=None):
         self.tile_size = tile_size

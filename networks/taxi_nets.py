@@ -170,7 +170,7 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault('hidden_size', 208)
+        kwargs.setdefault('hidden_size', 128)#208)
         #hidden_size=208 gives approximately the same number of parameters as MultiTaskLSTMNetwork(hidden_size=256)
         #self.erase_task_memory = kwargs.pop('erase_task_memory', True)
         super(TaskEnvRNN, self).__init__(*args, **kwargs)

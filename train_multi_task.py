@@ -126,10 +126,12 @@ def handle_command_line():
         #changes view_size if full_view is specified
         min_x, max_x, min_y, max_y = args.map_size
         view = min([max_x, max_y, args.view_size])
-        logging.warning('View size has been changed to match the specified maximum map size')
+        if view < args.view_size:
+            logging.warning('View size has been changed to match the specified maximum map size')
         return view, view
 
     args.view_size = view_size(args)
+    args.map_size = list(args.map_size) + list(args.map_size)
 
     return args
 
