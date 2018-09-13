@@ -116,7 +116,7 @@ class PickUp(TaxiTask):
     @classmethod
     def create(Class, state_resume, **kwargs):
         init_loc = state_resume.loc_taxi
-        kwargs.setdefault('duration', 5)
+        kwargs.setdefault('duration', 50)
         return Class(init_loc, **kwargs)
 
     def update_status(self, state_resume)-> TaskStatus:
