@@ -68,38 +68,26 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
         )
 
     def restore_weights_batch(self, task_ids):
+        uids, ids_to_uids = th.unique(task_ids, sorted=True, return_inverse=True)
+        # =================================================
+        # In this code section we deal with unique task indices
+        # and generate only unique weight matrices
+        task_embeds = self.embedding(uids)
+        diag_embeds = th.stack([th.diag(e) for e in task_embeds])
+
+        uW_ih = th.matmul(th.matmul(self.weight_ih1, diag_embeds), self.weight_ih2)
+        uW_hh = th.matmul(th.matmul(self.weight_hh1, diag_embeds), self.weight_hh2)
+        #===================================================
+        #now we need to get batch of matrices by sampling form our unique matrices:
+        W_ih = uW_ih.index_select(0, ids_to_uids)
+        W_hh = uW_hh.index_select(0, ids_to_uids)
+        return W_ih, W_hh
+
+    def restore_weights_batch_old(self, task_ids):
         task_embeds = self.embedding(task_ids)
         diag_embeds = th.stack([th.diag(e) for e in task_embeds])
         W_ih = th.matmul(th.matmul(self.weight_ih1, diag_embeds), self.weight_ih2)
         W_hh = th.matmul(th.matmul(self.weight_hh1, diag_embeds), self.weight_hh2)
-        return W_ih, W_hh
-
-    def forward_old(self, input, hx, task_ids):
-        self.check_forward_input(input)
-        self.check_forward_hidden(input, hx[0], '[0]')
-        self.check_forward_hidden(input, hx[1], '[1]')
-        cell = self._backend.LSTMCell
-        hx,cx = hx
-        bias_ih = self.bias_ih
-        bias_hh = self.bias_hh
-        batch_size = input.size(0)
-        new_hx, new_cx = [None]*batch_size, [None]*batch_size
-
-        for t in range(batch_size):
-            W_ih, W_hh = self.restore_weights_old(task_ids[t])
-            new_hx[t], new_cx[t] = cell(
-                input[t:t+1],
-                (hx[t:t+1],cx[t:t+1]),
-                W_ih, W_hh,
-                bias_ih, bias_hh
-            )
-        return th.cat(new_hx), th.cat(new_cx)
-
-    def restore_weights_old(self, task_ids):
-        task_embed = self.embedding(task_ids)
-        task_diag = th.diag(task_embed)
-        W_ih = th.mm(th.mm(self.weight_ih1,task_diag),self.weight_ih2)
-        W_hh = th.mm(th.mm(self.weight_hh1,task_diag),self.weight_hh2)
         return W_ih, W_hh
 
 

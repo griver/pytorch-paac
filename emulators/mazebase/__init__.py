@@ -58,9 +58,10 @@ class TaxiGamesCreator(MazebaseGamesCreator):
         show_default = " [default: %(default)s]"
         argparser.add_argument('-g', default='taxi_multi_task', choices=['taxi_multi_task', 'taxi_game'],
                                help='Name of game', dest='game')
-        argparser.add_argument('-m', '--map_size', nargs=4, type=int, default=[5, 5, 5, 5],
-                               help='Size of the environment. Expected format is (min_x, max_x, min_y, max_y).' +
-                                    ' At the beggining of a new episode (x,y) will be drawn uniformly of a new environment will be drawn uniformly from it' + show_default)
+        argparser.add_argument('-m', '--map_size', nargs=2, type=int, default=[5, 10],
+                               help='Size of the environment. Expected format is (min_side_length, max_side_length).'
+                                    ' At the begining of a new episode (map_weight, map_height) '
+                                    ' will be drawn uniformly from these values.' + show_default)
         #argparser.add_argument('-f', '--full_view', action='store_true',
         #                       help='If the flag is provided then an agent will receive a full map view as an observation.' + show_default)
         argparser.add_argument('--view_size', type=int, default=5,
