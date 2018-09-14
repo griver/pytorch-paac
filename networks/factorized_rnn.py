@@ -4,6 +4,7 @@ from torch.nn import functional as F
 from torch.nn._functions.thnn import rnnFusedPointwise as fusedBackend
 import torch as th
 import math
+import warnings
 
 def diag_lstm_size(input_size, hidden_size, fact_size, bias=True):
     W_ih = 4 * hidden_size * fact_size + fact_size * input_size + fact_size
@@ -22,7 +23,7 @@ def lstm_size(input_size, hidden_size, bias=True):
     return total_size
 
 
-class DiagonalLSTMCell(rnn.RNNCellBase):
+class FactorizedLSTMCell(rnn.RNNCellBase):
     def __init__(
       self,
       input_size,
@@ -31,7 +32,7 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
       task_embed_size=100,
       bias=True
     ):
-        super(DiagonalLSTMCell, self).__init__()
+        super(FactorizedLSTMCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bias = bias
@@ -50,6 +51,8 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
             self.register_parameter('bias_hh', None)
 
         self.reset_parameters()
+        self.generate_and_register_weights()
+
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.hidden_size)
@@ -60,14 +63,21 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
         self.check_forward_input(input)
         self.check_forward_hidden(input, hx[0], '[0]')
         self.check_forward_hidden(input, hx[1], '[1]')
-        W_ih, W_hh = self.restore_weights_batch(task_ids)
+        W_ih = self.cached_W_ih.index_select(0, task_ids)
+        W_hh = self.cached_W_hh.index_select(0, task_ids)
+        #W_ih, W_hh = self.restore_weights_batch(task_ids)
         return batch_weights_lstm_forward(
             input, hx,
             W_ih, W_hh,
             self.bias_ih, self.bias_hh
         )
 
-    def restore_weights_batch(self, task_ids):
+    def restore_weights_batch_fast(self, task_ids):
+        """
+        This version is faster with big batches due to smaller number of matrix multiplications.
+        But now i'm caching all generated weights for the entire rollout,
+        so this method no longer has any significant advantages
+        """
         uids, ids_to_uids = th.unique(task_ids, sorted=True, return_inverse=True)
         # =================================================
         # In this code section we deal with unique task indices
@@ -83,12 +93,25 @@ class DiagonalLSTMCell(rnn.RNNCellBase):
         W_hh = uW_hh.index_select(0, ids_to_uids)
         return W_ih, W_hh
 
-    def restore_weights_batch_old(self, task_ids):
+    def restore_weights_batch(self, task_ids):
+        """
+        Generates task-dependent weights using task embeddings.
+        :param task_ids: A LongTensor of shape (batch_size,) that contains indices of the required tasks
+        :returns:  A tuple of (W_ih, W_hh) where each value is a batch of lstm weight matrices(see original LSTMCell).
+        """
         task_embeds = self.embedding(task_ids)
         diag_embeds = th.stack([th.diag(e) for e in task_embeds])
         W_ih = th.matmul(th.matmul(self.weight_ih1, diag_embeds), self.weight_ih2)
         W_hh = th.matmul(th.matmul(self.weight_hh1, diag_embeds), self.weight_hh2)
         return W_ih, W_hh
+
+    def generate_and_register_weights(self):
+        warnings.warn('It is necessary to call "generate_and_register_weights" after each'
+            ' weight update if you use FactorizedLSTMCell in your module!', RuntimeWarning)
+        all_tasks = th.arange(self.embedding.num_embeddings).to(self.weight_ih1.device)
+        hashed_W_ih, hashed_W_hh = self.restore_weights_batch(all_tasks)
+        self.register_buffer('cached_W_ih', hashed_W_ih)
+        self.register_buffer('cached_W_hh', hashed_W_hh)
 
 
 def batch_weights_lstm_forward(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None):

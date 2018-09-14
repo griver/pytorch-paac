@@ -1,6 +1,6 @@
 from .paac_nets import torch, nn, F, np, init_model_weights, calc_output_shape
 from .paac_nets import Categorical, BaseAgentNetwork
-from .factorized_rnn import DiagonalLSTMCell
+from .factorized_rnn import FactorizedLSTMCell
 
 def preprocess_taxi_input(obs, infos, t_device):
 
@@ -170,7 +170,7 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
 
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault('hidden_size', 128)#208)
+        kwargs.setdefault('hidden_size', 208)
         #hidden_size=208 gives approximately the same number of parameters as MultiTaskLSTMNetwork(hidden_size=256)
         #self.erase_task_memory = kwargs.pop('erase_task_memory', True)
         super(TaskEnvRNN, self).__init__(*args, **kwargs)
@@ -186,7 +186,7 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
         obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
 
         self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
-        self.task_lstm = DiagonalLSTMCell(
+        self.task_lstm = FactorizedLSTMCell(
             obs_flatten+self._hidden_size, self._hidden_size,
             self._num_tasks,
             self._task_embed_dim
@@ -229,6 +229,8 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
         env_shape = get_shape(self.env_lstm.hidden_size)
         task_shape = get_shape(self.task_lstm.hidden_size)
         t,d = torch.float32, self._device
+
+        self.task_lstm.generate_and_register_weights()
         return dict(
             env_h=torch.zeros(*env_shape, dtype=t, device=d),
             env_c=torch.zeros(*env_shape, dtype=t, device=d),
@@ -239,6 +241,8 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
     def detach_rnn_state(self, rnn_state):
         for k in list(rnn_state.keys()): #fixate keys before modifying the dict
             rnn_state[k] = rnn_state[k].detach()
+        ##should call this after each weight change(i.e. either changed by optimizer or loaded from a file):
+        self.task_lstm.generate_and_register_weights()
 
 
 class TaxiLSTMNetwork(MultiTaskLSTMNetwork):

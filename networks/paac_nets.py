@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as nn_init
-from .factorized_rnn import DiagonalLSTMCell
+from .factorized_rnn import FactorizedLSTMCell
 
 import numpy as np
 import functools
@@ -228,7 +228,7 @@ def init_model_weights(module):
     elif isinstance(module, nn.Conv2d):
         #print('CONV2D_INIT:', module)
         init_conv2d(module)
-    elif isinstance(module, (nn.LSTMCell, DiagonalLSTMCell)):
+    elif isinstance(module, (nn.LSTMCell, FactorizedLSTMCell)):
         #print('LSTM_INIT:', module)
         init_lstm(module)
 
