@@ -27,7 +27,7 @@ def save_args(args, folder, file_name='args.json', exclude_args=tuple()):
     file_path = join_path(folder, file_name)
     ensure_dir(file_path)
     with open(file_path, 'w') as f:
-        return json.dump(save_args, f)
+        return json.dump(save_args, f,sort_keys=True,indent=2)
 
 
 def save_summary(obj, path, rewrite=False):
@@ -204,6 +204,7 @@ class BinaryClassificationStats(object):
         print('Recall: {0:.2f}%'.format(self.recall))
         print('targets_ratio: {0:.2f}%'.format(self.targets_ratio))
         print('predictions_ratio: {0:.2f}%'.format(self.predictions_ratio))
+
 
 
 def red(line):

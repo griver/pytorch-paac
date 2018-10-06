@@ -39,11 +39,14 @@ class MultiTaskActorCritic(ParallelActorCritic):
             self.log_terminals =log_terminals
             self.tasks_status = tasks_status
 
-    def __init__(self, network, batch_env, args):
-        super(MultiTaskActorCritic, self).__init__(network, batch_env, args)
-        self._term_model_coef = args.termination_model_coef
-        logging.debug('Termination loss class weights = {0}'.format(args.term_weights))
-        class_weights = th.tensor(args.term_weights).to(self.device, th.float32)
+    def __init__(self, *args, **kwargs):
+        term_weights = kwargs.pop('term_weights')
+        self._term_model_coef = kwargs.pop('termination_model_coef')
+
+        super(MultiTaskActorCritic, self).__init__(*args, **kwargs)
+
+        logging.debug('Termination loss class weights = {0}'.format(term_weights))
+        class_weights = th.tensor(term_weights).to(self.device, th.float32)
         self._term_model_loss = nn.NLLLoss(weight=class_weights).to(self.device)
         self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'term_loss', 'grad_norm'])
 

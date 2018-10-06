@@ -8,6 +8,7 @@ from collections import namedtuple
 from emulators import TaxiGamesCreator
 import utils
 import utils.eval_taxi as evaluate
+from utils.lr_scheduler import LinearAnnealingLR
 from multi_task import MultiTaskActorCritic
 from networks import taxi_nets, preprocess_taxi_input
 
@@ -82,19 +83,41 @@ def eval_network(network, env_creator, num_episodes,
 
 
 def main(args):
-    env_creator = TaxiGamesCreator(**vars(args))
-    network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
-
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
     logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
-    #batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    env_creator = TaxiGamesCreator(**vars(args))
+    #RMSprop defualts: momentum=0., centered=False, weight_decay=0
+    network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
+    opt = torch.optim.RMSprop(network.parameters(), lr=args.initial_lr, eps=args.e)
+    global_step = MultiTaskActorCritic.update_from_checkpoint(
+        args.debugging_folder,network, opt,
+        use_cpu=args.device=='cpu'
+    )
+    lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
+
     batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = MultiTaskActorCritic(network, batch_env, args)
+        learner = MultiTaskActorCritic(
+            network, opt,
+            lr_scheduler,
+            batch_env,
+            save_folder=args.debugging_folder,
+            global_step=global_step,
+            max_global_steps=args.max_global_steps,
+            rollout_steps=args.rollout_steps,
+            gamma=args.gamma,
+            critic_coef=args.critic_coef,
+            entropy_coef=args.entropy_coef,
+            clip_norm_type=args.clip_norm_type,
+            clip_norm=args.clip_norm,
+            loss_scaling=args.loss_scaling,
+            term_weights=args.term_weights,
+            termination_model_coef=args.termination_model_coef
+        )
         learner.evaluate = lambda net:eval_network(net, env_creator, 50)
         learner.train()
     finally:
@@ -112,8 +135,8 @@ def create_network(args, num_actions, obs_shape):
     return network
 
 
-def handle_command_line():
-    args = get_arg_parser().parse_args()
+def handle_command_line(parser):
+    args = parser.parse_args()
     args.random_seed = 3
     args.clip_norm_type = 'global'
     #we definitely don't want learning rate to become zero before the training ends:
@@ -149,8 +172,8 @@ def get_arg_parser():
     #actor-critic args:
     parser.add_argument('--arch', choices=net_choices,  dest="arch", required=True,
                         help="Which network architecture to train"+show_default)
-    parser.add_argument('--e', default=0.02, type=float, help="Epsilon for the Rmsprop optimizer"+ show_default, dest="e")
-    parser.add_argument('-lr', '--initial_lr', default=0.007, type=float,  dest="initial_lr",
+    parser.add_argument('--e', default=1e-5, type=float, help="Epsilon for the Rmsprop optimizer"+ show_default, dest="e")
+    parser.add_argument('-lr', '--initial_lr', default=7e-4, type=float,  dest="initial_lr",
                         help="Initial value for the learning rate."+show_default)
     parser.add_argument('-lra', '--lr_annealing_steps', default=80000000, type=int, dest="lr_annealing_steps",
                         help="Number of global steps during which the learning rate will be linearly annealed towards zero"+show_default)
@@ -158,9 +181,9 @@ def get_arg_parser():
                         help='Scales loss according to a given value'+show_default)
     parser.add_argument('--critic_coef', default=0.5, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
-    parser.add_argument('--entropy', default=0.02, type=float, dest="entropy_regularisation_strength",
+    parser.add_argument('--entropy', default=0.01, type=float, dest="entropy_coef",
                       help="default=0.02. Strength of the entropy regularization term"+show_default)
-    parser.add_argument('--clip_norm', default=3.0, type=float, dest="clip_norm",
+    parser.add_argument('--clip_norm', default=0.7, type=float, dest="clip_norm",
                         help="Grads will be clipped at the specified maximum (average) L2-norm"+show_default)
     parser.add_argument('-l', '--use_loc', action='store_true', dest='use_location',
                         help="If provided an agent will use it's coordinates as part of the observation")
@@ -181,8 +204,8 @@ def get_arg_parser():
     parser.add_argument('-w', '--workers', default=default_workers, type=int, dest="num_workers",
                         help="Number of parallel worker processes to handle the environments. " + show_default)
     #save and print:
-    parser.add_argument('-df', '--debugging_folder', default='logs/', type=str, dest="debugging_folder",
-                        help="Folder where to save the debugging information."+show_default)
+    parser.add_argument('-df', '--debugging_folder', default='test_log/', type=str, dest="debugging_folder",
+                        help="Folder where to save summaries and trained models"+show_default)
     parser.add_argument('-v', '--verbose', default=1, type=int, dest="verbose",
                         help="determines how much information to show during training" + show_default)
 
@@ -190,6 +213,6 @@ def get_arg_parser():
 
 
 if __name__ == '__main__':
-    args = handle_command_line()
+    args = handle_command_line(get_arg_parser())
     torch.set_num_threads(1)  # sometimes pytorch works faster with this setting
     main(args)

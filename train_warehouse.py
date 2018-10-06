@@ -125,7 +125,7 @@ def add_multi_task_learner_args(parser):
                         dest="lr_annealing_steps")
     parser.add_argument('--entropy', default=0.02, type=float,
                         help="Strength of the entropy regularization term (needed for actor-critic). "+show_default,
-                        dest="entropy_regularisation_strength")
+                        dest="entropy_coef")
     parser.add_argument('--clip_norm', default=3.0, type=float,
                         help="If clip_norm_type is local/global, grads will be"+
                              "clipped at the specified maximum (average) L2-norm. "+show_default,

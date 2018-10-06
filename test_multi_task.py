@@ -88,30 +88,16 @@ def fix_args_for_test(args, train_args):
     return args
 
 
-def load_trained_weights(network, checkpoint_path, use_cpu):
-    if use_cpu:
-        #it avoids loading cuda tensors in case a gpu is unavailable
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    else:
-        checkpoint = torch.load(checkpoint_path)
-    network.load_state_dict(checkpoint['network_state_dict'])
-    return checkpoint['last_step']
-
-
 if __name__=='__main__':
     args = handle_commandline()
 
-    checkpoint_path = utils.join_path(
-        args.folder,
-        train.MultiTaskActorCritic.CHECKPOINT_SUBDIR,
-        train.MultiTaskActorCritic.CHECKPOINT_LAST
-    )
     env_creator = train.TaxiGamesCreator(**vars(args))
     network = train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
-    steps_trained = load_trained_weights(network, checkpoint_path, args.device == 'cpu')
+    steps_trained = train.MultiTaskActorCritic.update_from_checkpoint(
+        args.folder, network, use_cpu=args.device == 'cpu'
+    )
 
     print(train.args_to_str(args))
-
     print('Model was trained for {} steps'.format(steps_trained))
     #evaluate = eval_mode[args.mode]
 

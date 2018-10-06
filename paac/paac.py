@@ -10,7 +10,6 @@ from torch import optim, nn
 
 import utils
 from utils import ensure_dir, join_path, isfile, yellow, red
-from utils.lr_scheduler import LinearAnnealingLR
 from collections import namedtuple
 
 
@@ -41,7 +40,7 @@ class ParallelActorCritic(object):
     CHECKPOINT_LAST = 'checkpoint_last.pth'
     CHECKPOINT_BEST = 'checkpoint_best.pth'
 
-    save_every = 10**6
+    save_every = 5e5#10**6
     print_every = 10240
     eval_every = 20*10240
 
@@ -62,57 +61,57 @@ class ParallelActorCritic(object):
             self.masks = masks
             self.next_v = next_v
 
-    def __init__(self, network, batch_env, args):
+    def __init__(self,
+                 network,
+                 optimizer,
+                 lr_scheduler,
+                 batch_env,
+                 save_folder='test_log/',
+                 global_step=0,
+                 max_global_steps=80000000,
+                 rollout_steps=10,
+                 gamma=0.99,
+                 critic_coef=0.5,
+                 entropy_coef=0.01,
+                 clip_norm_type='global',
+                 clip_norm=0.5,
+                 loss_scaling=1.):
+
         logging.debug('PAAC init is started')
-        self.checkpoint_dir = join_path(args.debugging_folder,self.CHECKPOINT_SUBDIR)
+        self.checkpoint_dir = join_path(save_folder, self.CHECKPOINT_SUBDIR)
         ensure_dir(self.checkpoint_dir)
 
-        checkpoint = self._load_latest_checkpoint(self.checkpoint_dir)
-        self.last_saving_step = checkpoint['last_step'] if checkpoint else 0
-
-        self.global_step = self.last_saving_step
+        self.global_step = global_step
+        self.last_saving_step = global_step
         self.network = network
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
         self.batch_env = batch_env
-        self.optimizer = optim.RMSprop(
-            self.network.parameters(),
-            lr=args.initial_lr,
-            eps=args.e,
-        ) #RMSprop defualts: momentum=0., centered=False, weight_decay=0
-
-        if checkpoint:
-            logging.info('Restoring agent variables from previous run')
-            self.network.load_state_dict(checkpoint['network_state_dict'])
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
-        self.lr_scheduler = LinearAnnealingLR(
-            self.optimizer,
-            args.lr_annealing_steps
-        )
+        self.num_emulators = batch_env.num_emulators
         #pytorch documentation says:
         #In most cases it’s better to use CUDA_VISIBLE_DEVICES environmental variable
         #Therefore to specify a particular gpu one should use CUDA_VISIBLE_DEVICES.
         self.device = self.network._device
 
-        self.gamma = args.gamma # future rewards discount factor
-        self.entropy_coef = args.entropy_regularisation_strength
-        self.loss_scaling = args.loss_scaling #5.
-        self.critic_coef =  args.critic_coef #0.25
-        self.total_steps = args.max_global_steps
-        self.rollout_steps = args.rollout_steps
-        self.clip_norm = args.clip_norm
-        self.num_emulators = batch_env.num_emulators
+        self.gamma = gamma # future rewards discount factor
+        self.entropy_coef = entropy_coef
+        self.loss_scaling = loss_scaling #1.
+        self.critic_coef =  critic_coef #0.5
+        self.total_steps = max_global_steps
+        self.rollout_steps = rollout_steps
+        self.clip_norm = clip_norm
 
         self.evaluate = None
         self.reshape_r = lambda r: np.clip(r, -1.,1.)
         self.compute_returns = n_step_returns
-        if args.clip_norm_type == 'global':
+        if clip_norm_type == 'global':
             self.clip_gradients = nn.utils.clip_grad_norm_
-        elif args.clip_norm_type == 'local':
+        elif clip_norm_type == 'local':
             self.clip_gradients = utils.clip_local_grad_norm
-        elif args.clip_norm_type == 'ignore':
+        elif clip_norm_type == 'ignore':
             self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
         else:
-            raise ValueError('Norm type({}) is not recoginized'.format(args.clip_norm_type))
+            raise ValueError('Norm type({}) is not recoginized'.format(clip_norm_type))
 
         self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
         self.episodes_rewards = np.zeros(batch_env.num_emulators)
@@ -261,11 +260,34 @@ class ParallelActorCritic(object):
         return loss, loss_data
 
     @classmethod
-    def _load_latest_checkpoint(cls, dir):
-        last_chkpt_path = join_path(dir, cls.CHECKPOINT_LAST)
-        if isfile(last_chkpt_path):
-            return th.load(last_chkpt_path)
-        return None
+    def update_from_checkpoint(Cls, save_folder, network, optimizer=None, use_best=False, use_cpu=False):
+        """
+        Update network and optimizer(if specified) from the checkpoints in the save folder.
+        If use_best is True then the data is loaded from the Cls.CHECKPOINT_BEST file
+        otherwise the data is loaded from the Cls.CHECKPOINT_LAST file
+        Returns the number of global steps past for the loaded checkpoint.
+        """
+        filename = Cls.CHECKPOINT_BEST if use_best else Cls.CHECKPOINT_LAST
+        chkpt_path = join_path(save_folder, Cls.CHECKPOINT_SUBDIR, filename)
+
+        if not isfile(chkpt_path):
+            checkpoint = None
+        elif use_cpu:
+            #avoids loading cuda tensors if the gpu memory is unavailable or too small
+            checkpoint = th.load(chkpt_path, map_location='cpu')
+        else:
+            checkpoint = th.load(chkpt_path)
+
+        last_saving_step = 0
+
+        if checkpoint:
+            last_saving_step = checkpoint['last_step']
+            logging.info('Restoring model weights from the previous run')
+            network.load_state_dict(checkpoint['network_state_dict'])
+            if optimizer:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        return last_saving_step
 
     def _save_progress(self, dir, summaries=None, is_best=False):
         last_chkpt_path = join_path(dir, self.CHECKPOINT_LAST)

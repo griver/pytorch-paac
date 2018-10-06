@@ -39,6 +39,16 @@ class MazebaseGamesCreator(BaseEnvironmentCreator):
 
 
 class TaxiGamesCreator(MazebaseGamesCreator):
+
+    def _get_env_params(self):
+        test_env = self.create_environment(-1, verbose=2, visualize=False, preliminary_env=True)
+        num_actions = len(test_env.legal_actions)
+        obs_shape = test_env.observation_shape
+        return dict(
+          num_actions=num_actions,
+          obs_shape=obs_shape
+        )
+
     @staticmethod
     def available_games(*args, **kwargs):
         games = [
@@ -56,7 +66,7 @@ class TaxiGamesCreator(MazebaseGamesCreator):
     @classmethod
     def add_required_args(cls, argparser):
         show_default = " [default: %(default)s]"
-        argparser.add_argument('-g', default='taxi_multi_task', choices=['taxi_multi_task', 'taxi_game'],
+        argparser.add_argument('-g', default='taxi_multi_task', choices=['taxi_multi_task','fixed_taxi_multi_task'],
                                help='Name of game', dest='game')
         argparser.add_argument('-m', '--map_size', nargs=2, type=int, default=[5, 10],
                                help='Size of the environment. Expected format is (min_side_length, max_side_length).'
@@ -78,3 +88,5 @@ class TaxiGamesCreator(MazebaseGamesCreator):
                                help="if provided each episode equals one subtask")
         argparser.add_argument('--max_episode_steps', type=int, default=300,
                                help='Maximum number of steps in each episode')
+
+

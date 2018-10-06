@@ -7,6 +7,7 @@ import torch
 from emulators import VizdoomGamesCreator, AtariGamesCreator
 
 import utils
+from utils.lr_scheduler import LinearAnnealingLR
 import utils.evaluate as evaluate
 from networks import vizdoom_nets, atari_nets
 from paac import ParallelActorCritic
@@ -84,19 +85,41 @@ def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True)
 
 
 def main(args):
-    env_creator = get_environment_creator(args)
-    network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
-
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
     logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
-    #batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    env_creator = get_environment_creator(args)
+    network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
+    #RMSprop defualts: momentum=0., centered=False, weight_decay=0
+    opt = torch.optim.RMSprop(network.parameters(), lr=args.initial_lr, eps=args.e)
+
+    global_step = ParallelActorCritic.update_from_checkpoint(
+        args.debugging_folder, network, opt,
+        use_cpu=args.device == 'cpu'
+    )
+    lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
+
     batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = ParallelActorCritic(network, batch_env, args)
+        learner = ParallelActorCritic(
+            network, opt,
+            lr_scheduler,
+            batch_env,
+            save_folder=args.debugging_folder,
+            global_step=global_step,
+            max_global_steps=args.max_global_steps,
+            rollout_steps=args.rollout_steps,
+            gamma=args.gamma,
+            critic_coef=args.critic_coef,
+            entropy_coef=args.entropy_coef,
+            clip_norm_type=args.clip_norm_type,
+            clip_norm=args.clip_norm,
+            loss_scaling=args.loss_scaling
+        )
         # evaluation results are saved as summaries of the training process:
         learner.evaluate = lambda network: eval_network(network, env_creator, 10)
         learner.train()
@@ -137,18 +160,18 @@ def add_paac_args(parser, framework):
                         help="Device to be used ('cpu' or 'cuda'). " +
                          "Use CUDA_VISIBLE_DEVICES to specify a particular GPU" + show_default,
                         dest="device")
-    parser.add_argument('--e', default=0.02, type=float,
+    parser.add_argument('--e', default=1e-5, type=float,
                         help="Epsilon for the Rmsprop and Adam optimizers."+show_default, dest="e")
-    parser.add_argument('-lr', '--initial_lr', default=0.007, type=float,
+    parser.add_argument('-lr', '--initial_lr', default=7e-4, type=float,
                         help="Initial value for the learning rate."+show_default, dest="initial_lr",)
     parser.add_argument('-lra', '--lr_annealing_steps', default=80000000, type=int,
                         help="Nr. of global steps during which the learning rate will be linearly" +
                              "annealed towards zero." + show_default,
                         dest="lr_annealing_steps")
-    parser.add_argument('--entropy', default=0.02, type=float,
+    parser.add_argument('--entropy', default=0.01, type=float,
                         help="Strength of the entropy regularization term (needed for actor-critic). "+show_default,
-                        dest="entropy_regularisation_strength")
-    parser.add_argument('--clip_norm', default=3.0, type=float,
+                        dest="entropy_coef")
+    parser.add_argument('--clip_norm', default=1.0, type=float,
                         help="If clip_norm_type is local/global, grads will be"+
                              "clipped at the specified maximum (average) L2-norm. "+show_default,
                         dest="clip_norm")
@@ -172,7 +195,7 @@ def add_paac_args(parser, framework):
                         help="Folder where to save training progress.", dest="debugging_folder")
     parser.add_argument('--arch', choices=net_choices, help="Which network architecture to train"+show_default,
                         dest="arch", required=True)
-    parser.add_argument('--loss_scale', default=5., dest='loss_scaling', type=float,
+    parser.add_argument('--loss_scale', default=1., dest='loss_scaling', type=float,
                         help='Scales loss according to a given value'+show_default )
     parser.add_argument('--critic_coef', default=0.5, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)

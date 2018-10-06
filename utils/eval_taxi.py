@@ -34,67 +34,82 @@ def set_user_defined_episodes(env):
         print('tasks:', task_seq)
         return (init_config, task_seq)
 
-    env.game._get_reset_config = choose_new_config
+    env.game._choose_reset_config = choose_new_config
 
 
-def interactive_eval(network, env_creator, test_count, **kwargs):
+@model_evaluation
+def save_coordinates_eval(network, env_creator, num_episodes=1, greedy=False,
+                termination_threshold=0.5):
     """
-    In this evaluation mode you can choose initial configuration
-    and list a sequence of tasks at the beginning of each episode
-
-    :return: the list of episodes cumulative rewards
-             and the list of episodes lengths
+    Plays for num_episodes episodes on a single environment.
+    Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
+    Returns:
+         A list that stores total reward from each episode
+         A list that stores length of each episode
     """
     assert network.training == False, 'You should set the network to eval mode before testing!'
-    greedy = kwargs.get('greedy', False)
-    is_recurrent = kwargs.get('is_recurrent', False)
-    termination_threshold = kwargs.get('termination_threshold', 0.5)
 
-    import time, os
-    rewards = np.zeros(test_count, dtype=np.float32)
-    num_steps = np.full(test_count, float('inf'))
-    action_codes = np.eye(env_creator.num_actions)
-    preprocess_states = env_creator.preprocess_states
+    episode_rewards = []
+    episode_steps = []
+    logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
+    device = network._device
 
     extra_inputs = {
         'greedy': greedy,
         'termination_threshold':termination_threshold
     }
-    for i in range(test_count):
-        print('=============== Episode #{} ================='.format(i + 1))
-        extra_inputs['rnn_inputs'] = network.get_initial_state(1) if is_recurrent else None
-        env = env_creator.create_environment(i)
-        display = env.game.display
-        task = lambda: env.game.task()
 
-        set_user_defined_episodes(env)
+    def unsqueeze(emulator_outputs):
+        outputs = list(emulator_outputs)
+        state, info = outputs[0], outputs[-1]
+        if state is not None:
+            outputs[0] = state[np.newaxis]
+        if info is not None:
+            outputs[-1] = {k:np.asarray(v)[np.newaxis] for k, v in info.items()}
+        return outputs
 
-        state = env.reset()[np.newaxis, :].astype(np.uint8)
-        display()
-        print('current task:', task())
+    for episode in range(num_episodes):
+        print('=============== Episode #{} ================='.format(episode))
+        env = env_creator.create_environment(np.random.randint(1000))
+        try:
+            display = env.game.display
+            task = lambda: env.game.task()
 
-        for t in itertools.count():
-            inputs = preprocess_states(state, env_creator.obs_shape)
-            net_output = choose_action(network, *inputs, **extra_inputs)
-            V, acts, done_probs, extra_inputs['rnn_inputs'], info = net_output
-            act = acts.data[0, 0]
-            print('#{0} V(s_t): {1:.3f} a_t: {2}'.format(t, V.data[0, 0], env.legal_actions[act]), end=' ')
-            print('P(done): {0:.3f}'.format(info['done_probs'].data[0,1]))
-            time.sleep(2.)
-            print()
-            act_one_hot = action_codes[act, :]
-            s, r, is_done = env.next(act_one_hot)
-            state[0] = s
-            rewards[i] += r
-            num_steps[i] = t + 1
+            mask = th.zeros(1).to(device)
+            rnn_state = network.init_rnn_state(1)
+            state, info = unsqueeze(env.reset())
+            total_r = 0
 
-            print('reward:', r)
+            print('map_size:', (env.game.height, env.game.width))
             display()
             print('current task:', task())
 
-            if is_done: break
+            for t in itertools.count():
 
-    return num_steps, rewards, None
+                outputs = choose_action(network, state, info, mask, rnn_state, **extra_inputs)
+                act, done_pred, rnn_state, model_info = outputs
+                act = act.item()
+
+                print('#{0} v_t={1:.3f} a_t={2}'.format(t, model_info['values'].item(),
+                                                           env.legal_actions[act]), end=' ')
+                print('P_t(done)={0:.3f}'.format(model_info['done_probs'][0,1].item()))
+                input('Press any button to continue..\n')
+
+                state, reward, is_done, info = unsqueeze(env.next(act))
+                mask[0] = 1.-is_done
+                total_r += reward
+                print('R_t: {:.2f} total_r: {:.2f}'.format(reward, total_r))
+                print('-------------Step #{}----------------'.format(t))
+                display()
+                print('current task:', task())
+                if is_done: break
+
+            episode_rewards.append(total_r)
+            episode_steps.append(t + 1)
+        finally:
+            env.close()
+
+    return episode_steps, episode_rewards, None
 
 
 @model_evaluation
@@ -239,7 +254,6 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
         tasks_stats.add_task_history(h)
     extra_stats = {'done_pred_stats':termination_model_stats, 'task_stats':tasks_stats}
     return episode_steps, episode_rewards, extra_stats
-
 
 
 class TerminationStats(dict):

@@ -6,6 +6,7 @@ class TaskStatus(IntEnum):
     SUCCESS = 1
     FAIL = 2
 
+
 class TaxiTask(object):
     task_id = -1
 
@@ -22,15 +23,15 @@ class TaxiTask(object):
     def allowed_action(self, action: str) -> bool:
         return True
 
-    def update_status(self, state_resume) -> TaskStatus:
+    def update_status(self, game) -> TaskStatus:
         raise NotImplementedError()
 
     @classmethod
-    def is_available(Class, state_resume):
+    def is_available(Class, game):
         raise NotImplementedError()
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
+    def create(Class, game, **kwargs):
         raise NotImplementedError()
 
     def completed(self):
@@ -58,6 +59,7 @@ class TaxiTask(object):
     def min_steps_to_complete(self, game):
         raise NotImplementedError()
 
+
 class FullTaxi(TaxiTask):
     task_id = 0
 
@@ -65,19 +67,19 @@ class FullTaxi(TaxiTask):
         super(FullTaxi,self).__init__(*args, **kwargs)
 
     @classmethod
-    def is_available(Class, state_resume):
-        return not state_resume.passenger_in_taxi
+    def is_available(Class, game):
+        return not game.passenger.is_pickedup
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
+    def create(Class, game, **kwargs):
         return Class(**kwargs)
 
-    def update_status(self, state_resume):
+    def update_status(self, game):
         self.step += 1
-        finish_condition = (not state_resume.passenger_in_taxi) \
-                           and (state_resume.loc_passenger == state_resume.loc_destination)
+        finish_condition = (not game.passenger.is_pickedup) \
+                           and (game.passenger.location == game.target.location)
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -108,23 +110,23 @@ class PickUp(TaxiTask):
         self.init_loc = init_loc
 
     @classmethod
-    def is_available(Class, state_resume):
+    def is_available(Class, game):
 
-        return (not state_resume.passenger_in_taxi) and \
-               (state_resume.loc_passenger == state_resume.loc_taxi)
+        return (not game.passenger.is_pickedup) and \
+               (game.passenger.location == game.agent.location)
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
-        init_loc = state_resume.loc_taxi
+    def create(Class, game, **kwargs):
+        init_loc = game.agent.location
         kwargs.setdefault('duration', 50)
         return Class(init_loc, **kwargs)
 
-    def update_status(self, state_resume)-> TaskStatus:
+    def update_status(self, game)-> TaskStatus:
         self.step += 1
 
-        finish_condition = state_resume.passenger_in_taxi
+        finish_condition = game.passenger.is_pickedup
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -148,23 +150,23 @@ class ConveyPassenger(TaxiTask):
         super(ConveyPassenger,self).__init__(*args,**kwargs)
 
     @classmethod
-    def is_available(Class, state_resume):
-        return state_resume.passenger_in_taxi #and\
-               #state_resume.loc_taxi != state_resume.loc_destination
+    def is_available(Class, game):
+        return game.passenger.is_pickedup #and\
+               #game.agent.location != game.target.location
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
+    def create(Class, game, **kwargs):
         kwargs.setdefault('duration',200)
         return Class(**kwargs)
 
-    def update_status(self, state_resume)-> TaskStatus:
+    def update_status(self, game)-> TaskStatus:
         self.step += 1
 
-        finish_condition = (not state_resume.passenger_in_taxi) and\
-                           (state_resume.loc_destination == state_resume.loc_passenger)
+        finish_condition = (not game.passenger.is_pickedup) and\
+                           (game.target.location == game.passenger.location)
 
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -194,27 +196,27 @@ class FindPassenger(TaxiTask):
         self.passenger_in_taxi = passenger_in_taxi
 
     @classmethod
-    def is_available(Class, state_resume):
-        return state_resume.passenger_in_taxi is False \
-               and state_resume.loc_passenger != state_resume.loc_taxi
+    def is_available(Class, game):
+        return game.passenger.is_pickedup is False \
+               and game.passenger.location != game.agent.location
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
-        in_taxi = state_resume.passenger_in_taxi
+    def create(Class, game, **kwargs):
+        in_taxi = game.passenger.is_pickedup
         kwargs.setdefault('duration', 200)
         return Class(in_taxi, **kwargs)
 
     def allowed_action(self, action):
         return action not in ('pickup','dropoff')
 
-    def update_status(self, state_resume)-> TaskStatus:
+    def update_status(self, game)-> TaskStatus:
         self.step += 1
-        loc_p = state_resume.loc_passenger
-        loc_t = state_resume.loc_taxi
+        loc_p = game.passenger.location
+        loc_t = game.agent.location
 
-        finish_condition = (loc_t == loc_p) and (not state_resume.passenger_in_taxi)
+        finish_condition = (loc_t == loc_p) and (not game.passenger.is_pickedup)
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -229,34 +231,104 @@ class FindPassenger(TaxiTask):
         return game.distance(game.agent.location, game.passenger.location)
 
 
-class ReachDestination(TaxiTask):
+class MoveUp(TaxiTask):
     task_id = 4
+
+    def __init__(self, agent_loc, *args, **kwargs):
+        super(MoveUp, self).__init__(*args, **kwargs)
+        self.agent_loc = agent_loc
+
+    @classmethod
+    def is_available(Class, game):
+        x,y = game.agent.location
+        return (y+1) < game.height
+
+    @classmethod
+    def create(Class, game, **kwargs):
+        agent_loc = game.agent.location
+        kwargs.setdefault('duration', 50)
+        return Class(agent_loc, **kwargs)
+
+    def update_status(self, game):
+        self.step += 1
+        x,y = game.agent.location
+        finish_condition = (y + 1) >= game.height
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == game.agent.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+
+        return self.status
+
+
+class MoveDown(TaxiTask):
+    task_id = 5
+
+    def __init__(self, agent_loc, *args, **kwargs):
+        super(MoveDown, self).__init__(*args, **kwargs)
+        self.agent_loc = agent_loc
+
+    @classmethod
+    def is_available(Class, game):
+        x, y = game.agent.location
+        return y > 0
+
+    @classmethod
+    def create(Class, game, **kwargs):
+        agent_loc = game.agent.location
+        kwargs.setdefault('duration', 50)
+        return Class(agent_loc, **kwargs)
+
+    def update_status(self, game):
+        self.step += 1
+        x, y = game.agent.location
+        finish_condition = (y == 0)
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == game.agent.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+
+        return self.status
+
+
+class ReachDestination(TaxiTask):
+    task_id = 6
 
     def __init__(self, passenger_in_taxi, *args, **kwargs):
         super(ReachDestination, self).__init__(*args, **kwargs)
         self.passenger_in_taxi = passenger_in_taxi
 
     @classmethod
-    def is_available(Class, state_resume):
-        return state_resume.loc_destination != state_resume.loc_taxi
+    def is_available(Class, game):
+        return game.target.location != game.agent.location
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
-        in_taxi = state_resume.passenger_in_taxi
+    def create(Class, game, **kwargs):
+        in_taxi = game.passenger.is_pickedup
         kwargs.setdefault('duration', 200)
         return Class(in_taxi, **kwargs)
 
     def allowed_action(self, action):
         return action not in ('pickup','dropoff')
 
-    def update_status(self, state_resume)-> TaskStatus:
+    def update_status(self, game)-> TaskStatus:
         self.step += 1
 
-        finish_condition = (state_resume.loc_taxi == state_resume.loc_destination) \
-                           and (state_resume.passenger_in_taxi == self.passenger_in_taxi)
+        finish_condition = (game.agent.location == game.target.location) \
+                           and (game.passenger.is_pickedup == self.passenger_in_taxi)
 
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -271,30 +343,30 @@ class ReachDestination(TaxiTask):
         return game.distance(game.agent.location, game.target.location)
 
 class DropOff(TaxiTask):
-    task_id = 5
+    task_id = 7
 
     def __init__(self, init_loc, *args, **kwargs):
         super(DropOff,self).__init__(*args,**kwargs)
         self.init_loc = init_loc
 
     @classmethod
-    def is_available(Class, state_resume):
-        return state_resume.passenger_in_taxi
+    def is_available(Class, game):
+        return game.passenger.is_pickedup
 
     @classmethod
-    def create(Class, state_resume, **kwargs):
-        init_loc = state_resume.loc_taxi
+    def create(Class, game, **kwargs):
+        init_loc = game.agent.location
         kwargs.setdefault('duration',50)
         return Class(init_loc, **kwargs)
 
-    def update_status(self, state_resume)-> TaskStatus:
+    def update_status(self, game)-> TaskStatus:
         self.step += 1
 
-        finish_condition = (not state_resume.passenger_in_taxi) and\
-                           (self.init_loc == state_resume.loc_passenger)
+        finish_condition = (not game.passenger.is_pickedup) and\
+                           (self.init_loc == game.passenger.location)
 
         finish_act = (self.finish_action is None) \
-                     or (self.finish_action == state_resume.last_performed_act)
+                     or (self.finish_action == game.agent.last_performed_act)
 
         if finish_condition and finish_act:
             self.status = TaskStatus.SUCCESS
@@ -321,6 +393,8 @@ tasks_dict = dict(
     find_p=FindPassenger,
     convey_p=ConveyPassenger,
     reach_d=ReachDestination,
+    move_up=MoveUp,
+    move_down=MoveDown,
     full_taxi=FullTaxi
 )
 
@@ -367,14 +441,14 @@ class TaskManager(AbstractTaskManager):
                                  ' emulator.mazebase.taxi_task.tasks_dict')
         return tasks
 
-    def next(self, state_resume, rnd_state):
-        is_available = [t.is_available(state_resume) for t in self._task_types]
+    def next(self, game, rnd_state):
+        is_available = [t.is_available(game) for t in self._task_types]
         priorities = self._priorities[is_available]
         task_types = self._task_types[is_available]
         #print('available tasks:', [t.__name__ for t in task_types])
         selected_task_type = rnd_state.choice(task_types,
                                               p=priorities/sum(priorities))
-        task = selected_task_type.create(state_resume, **self.extra_task_kwargs)
+        task = selected_task_type.create(game, **self.extra_task_kwargs)
         #print('selected task:', task, 'as_dict:', task.as_info_dict())
         return task
 

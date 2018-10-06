@@ -21,22 +21,12 @@ def fix_args_for_test(args, train_args):
 
     if args.framework == 'vizdoom':
         args.reward_coef = 1.
-        args.step_delay = 0.20
+        args.step_delay = 0.33
     elif args.framework == 'atari':
         args.random_start = True
         args.single_life_episodes = False
         args.step_delay = 0
     return args
-
-
-def load_trained_weights(network, checkpoint_path, use_cpu):
-    if use_cpu:
-        #it avoids loading cuda tensors in case a gpu is unavailable
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    else:
-        checkpoint = torch.load(checkpoint_path)
-    network.load_state_dict(checkpoint['network_state_dict'])
-    return checkpoint['last_step']
 
 
 if __name__=='__main__':
@@ -56,12 +46,10 @@ if __name__=='__main__':
     train_args = utils.load_args(folder=args.folder)
     args = fix_args_for_test(args, train_args)
 
-    checkpoint_path = utils.join_path(
-        args.folder, ParallelActorCritic.CHECKPOINT_SUBDIR, ParallelActorCritic.CHECKPOINT_LAST
-    )
+
     env_creator = get_environment_creator(args)
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
-    steps_trained = load_trained_weights(network, checkpoint_path, args.device == 'cpu')
+    steps_trained = ParallelActorCritic.update_from_checkpoint(args.folder, network, use_cpu=(args.device=='cpu'))
 
     if args.old_preprocessing:
         network._preprocess = old_preprocess_images

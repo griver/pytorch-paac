@@ -141,24 +141,30 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
                  success_reward=1.1,
                  fail_reward=0.,
                  single_task_episodes=False,
+                 tasks=None,
                  **kwargs):
+        preliminary_env = kwargs.pop('preliminary_env', False) #no difference there, but this parameter could be useful in subclasses
         self.max_episode_steps = max_episode_steps
         self.reset_configs = self.get_reset_configs()
 
         finish_action = 'pass' if finish_action else None
+        if not preliminary_env:
+            print('ENV TASKS:',
+                  tasks if tasks else ['pickup','find_p','convey_p'])
+
         self.task_manager = TaskManager(
-            ['pickup','find_p','convey_p'],
+            tasks if tasks else ['pickup','find_p','convey_p'],
             extra_task_kwargs={"finish_action":finish_action}
         )
         self.single_task = single_task_episodes #episode equals one task
         self.completion_reward = success_reward
         self.fail_reward = fail_reward
         self.agent_cls = RestrainedMultiTaskTaxiAgent
-        self.current_config = None
         self.current_task = None
         self.episode_steps = 0
         self.rnd = np.random.RandomState(random_seed)
-
+        if len(kwargs['map_size']) == 2: #if map is square why specify 4 values?
+            kwargs['map_size'] = list(kwargs['map_size'])*2
         self.future_map_size = kwargs['map_size'] # map_size we'll use in the next episode
         #BaseMaseGame.__init__ calls self.reset(), so we need to create all feilds before the call
         super(TaxiMultiTask, self).__init__(**kwargs)
@@ -167,7 +173,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         features.extend(Passenger.all_features())
         features.sort()
 
-    def _get_reset_config(self, params=None):
+    def _choose_reset_config(self, params=None):
         return choice(self.reset_configs)
 
     def _reset(self):
@@ -180,7 +186,7 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self._add_agent(self.agent, "TaxiAgent")
 
         loc_destination, loc_passenger = self._get_placement_locs(loc_agent, 2)
-        init_state = self._get_reset_config()
+        init_state = self._choose_reset_config()
 
         # check relationship between locations of the passenger and the taxi locations
         if init_state.passenger_taxi == Relation.FAR:
@@ -254,20 +260,19 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
     def _step(self):
         """
         At each turn _step is performed after the agent actions and before reward computation and new task selection
-        here we update self.state_resume and update current task's status with it.
         """
         self.episode_steps += 1
         if self.episode_steps == 0:
             # first method call in episode is performed right after _reset() and before an agent starts to act.
             # We use this call to create first task for the new episode.
-            self.current_task = self.task_manager.next(self.state_resume(), self.rnd)
+            self.current_task = self.task_manager.next(self, self.rnd)
             self._info['task_status'] = -1 # task_status is similar to the is_done variable.
         else:
-            self._info['task_status']=self.current_task.update_status(self.state_resume())
+            self._info['task_status']=self.current_task.update_status(self)
             if not self.current_task.running():
                 self._tasks_history.append(self.current_task.as_info_dict())
                 self._respawn_passenger_if_needed(self._info['task_status'])
-                self.current_task = self.task_manager.next(self.state_resume(), self.rnd)
+                self.current_task = self.task_manager.next(self, self.rnd)
 
         # task_id and task_status are intended to relate to each other
         # like state and is_done variables in a typical environment
@@ -285,18 +290,6 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
                 loc1, loc2 = self._get_placement_locs(self.agent.location, 2)
                 new_loc = loc1 if loc1 != self.target.location else loc2
                 self._move_item(self.passenger.id, new_loc)
-
-    def state_resume(self):
-        """
-        Returns enough information to select new task or detect task completion
-        """
-        return CompactStateResume(
-            loc_taxi=self.agent.location,
-            loc_passenger=self.passenger.location,
-            loc_destination=self.target.location,
-            passenger_in_taxi=self.passenger.is_pickedup,
-            last_performed_act=self.agent.last_performed_act
-        )
 
     def _finished(self):
         if self.single_task and len(self._tasks_history):
@@ -359,29 +352,33 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         return x_float, y_float
 
 
+
 class FixedTaxiMultiTask(TaxiMultiTask):
 
-    def __init__(self, **kwargs):
-        self.repeat_episode = False  # if self.full_reset is True then
+    def __init__(self, *args, **kwargs):
+        self._preliminary_env = kwargs.pop('preliminary_env', False)
+        self.repeat_episode = kwargs.pop('repeat_episode', False)  # if self.full_reset is True then
+        self.fixed_passenger = kwargs.pop('fixed_passenger', True)
         self.initial_game_state = None
-        super(FixedTaxiMultiTask, self).__init__(**kwargs)
+
+        super(FixedTaxiMultiTask, self).__init__(*args, **kwargs)
 
     def _reset(self):
-        if self.repeat_episode is True:
+        if self.repeat_episode:
             self.restore(self.initial_game_state)
         else:
             super(FixedTaxiMultiTask, self)._reset()
-            self.initial_game_state = self.collect_state_info(self)
+            self.initial_game_state = self.collect_state_info()
 
-    def collect_state_info(self, taxi_game):
+    def collect_state_info(self):
         state = {}
-        state['width'] = taxi_game.width
-        state['height'] = taxi_game.height
+        state['width'] = self.width
+        state['height'] = self.height
         block_locs = []
         water_locs = []
         for x in range(state['height']):
             for y in range(state['height']):
-                for item in taxi_game._get_items(location=(x,y)):
+                for item in self._get_items(location=(x,y)):
                     if isinstance(item, maze_items.Block):
                        block_locs.append((x,y))
                     if isinstance(item, maze_items.Water):
@@ -389,7 +386,13 @@ class FixedTaxiMultiTask(TaxiMultiTask):
 
         state['block_locs'] = block_locs
         state['water_locs'] = water_locs
-        state['config'] = taxi_game.current_config
+        state['state_resume'] = dict(
+            loc_taxi=self.agent.location,
+            loc_passenger=self.passenger.location,
+            loc_destination=self.target.location,
+            passenger_in_taxi=self.passenger.is_pickedup,
+            last_performed_act=self.agent.last_performed_act
+        )
         return state
 
     def restore(self, state_info):
@@ -409,13 +412,85 @@ class FixedTaxiMultiTask(TaxiMultiTask):
         for loc in state_info['water_locs']:
             self._add_item(maze_items.Water(location=loc))
 
-        init_state, tasks = state_info['config']
-        self.agent = self.agent_cls(location=init_state['loc_a'])
+        state_resume = state_info['state_resume']
+        self.agent = self.agent_cls(location=state_resume['loc_taxi'])
         self._add_agent(self.agent, "TaxiAgent")
-        self.target = maze_items.Goal(location=init_state['loc_t'])
+        self.target = maze_items.Goal(location=state_resume['loc_destination'])
         self._add_item(self.target)
-        self.passenger = Passenger(location=init_state['loc_p'])
+        self.passenger = Passenger(location=state_resume['loc_passenger'])
         self._add_item(self.passenger)
-        if init_state['is_picked_up']:
+        if state_resume['passenger_in_taxi']:
             self.agent.actions['pickup']()
-        self.current_config = state_info['config']
+            assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for state={}".format(state_resume)
+
+        self.episode_steps = -1 # see the self._step() comment
+
+        self._info = {}
+        self._tasks_history = []
+
+    def _respawn_passenger_if_needed(self, last_task_status):
+        """
+        if passenger arrived to the destination and the current task is completed
+        then respawns the passenger in a new location
+        """
+        if self.fixed_passenger:
+            if last_task_status != TaskStatus.RUNNING:
+                if (self.target.location == self.passenger.location) \
+                and (self.passenger.is_pickedup is False):
+                    loc = self.initial_game_state['state_resume']['loc_passenger']
+                    self._move_item(self.passenger.id, loc)
+        else:
+            super(FixedTaxiMultiTask, self)._respawn_passenger_if_needed(last_task_status)
+
+    def set_init_coordinate(self, obj_name, location):
+        """
+        Sets initial position of one of three possible game objects: taxi, passenger, destination
+        Changes take effect only in the next episode or when the passenger respawns.
+        :param obj_name: str, "taxi", "passenger" or "destination"
+        :param location:
+        :return:
+        """
+        if not self._in_bounds(location):
+            raise ValueError('Object location is out of bounds!')
+        if any(isinstance(item, maze_items.Block) for item in self._get_items(location=location)):
+            raise ValueError(
+                "You can't place {} in the same location{} with the impassable object".format(obj_name, location))
+
+        state_resume = self.initial_game_state['state_resume']
+        if obj_name == 'taxi':
+            state_resume['loc_taxi'] = location
+        elif obj_name == 'passenger':
+            state_resume['loc_passenger'] = location
+        elif obj_name == 'destination':
+            state_resume['loc_destination'] = location
+        else:
+            raise ValueError('You can change location of {}'.format(obj_name))
+
+    def _choose_reset_config(self, params=None):
+        if self._preliminary_env:
+            return super(FixedTaxiMultiTask, self)._choose_reset_config()
+
+        print('Current map:')
+        self.display()
+        print('posible configs:')
+        for i, config in enumerate(self.reset_configs):
+            print('#{}: {}'.format(i,config))
+        init_id = int(input('Please, input the number of the desired config:'))
+        chosen_config = self.reset_configs[init_id]
+
+        def confirm(question):
+            while True:
+                answer = input(question + '[y/n]')
+                if answer in ('y', 'n'):
+                    return answer=='y'
+                else:
+                    print('Input y or n!')
+
+        self.repeat_episode = confirm(
+            'Do you want to use this map and configuration in every episode?'
+        )
+        self.fixed_passenger = confirm(
+            'Do you want to spawn passenger'
+            ' in the same location every time?'
+        )
+        return chosen_config

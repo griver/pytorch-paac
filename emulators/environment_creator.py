@@ -20,7 +20,7 @@ class BaseEnvironmentCreator(object):
         if game_name in self.available_games(resource_folder):
             self.env_class = self.get_environment_class()
             self._default_args = default_emulator_args
-            new_fields = self._init_default()
+            new_fields = self._get_env_params()
             for name, value in new_fields.items():
                 setattr(self, name, value)
         else:
@@ -28,10 +28,9 @@ class BaseEnvironmentCreator(object):
                 "{0} can't find {1} game in the folder {2}".format(self.__class__, game_name, resource_folder)
             )
 
-    def _init_default(self):
+    def _get_env_params(self):
         """
-        A simple method for cases when there is no need
-        in any preprocessing before creating the emulators
+        Creates one instance of the environment to get parameters that unknown without the instance.
         """
         #
         test_env = self.create_environment(-1, visualize=False, verbose=2)

@@ -20,10 +20,46 @@ class TaxiEmulator(MazebaseEmulator):
     def available_games():
         return TAXI_GAMES
 
-
-    def __init__(self, *args, **kwargs):
+    def __init__(self, emulator_id, game, full_view=False, verbose=0,
+                 view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE,
+                 random_seed=17, finish_action=False, fail_reward=0.,
+                 single_task_episodes=False, max_episode_steps=300, preliminary_env=False, tasks=None, **unknown):
         self._encoder = FewHotEncoder()
-        super(TaxiEmulator, self).__init__(*args, **kwargs)
+        if verbose >= 2:
+            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+        self.emulator_id = emulator_id
+        available_games = self.available_games()
+        assert game in available_games, '{0}: There is no such game in the mazebase framework'.format(game)
+        game_cls = available_games[game]
+
+        if full_view:
+            featurizer = GlobalViewFeaturizer(notify=True)
+        else:
+            featurizer = LocalViewFeaturizer(window_size=view_size, notify=True)
+
+        game_seed = (self.emulator_id * random_seed) % (2**32)
+        self.game = game_cls(map_size=map_size,
+                             featurizer=featurizer,
+                             max_episode_steps=max_episode_steps,
+                             random_seed=game_seed,
+                             finish_action=finish_action,
+                             fail_reward=fail_reward,
+                             single_task_episodes=single_task_episodes,
+                             preliminary_env=preliminary_env,
+                             tasks=tasks)
+
+        state, _, _, _ = self._observe() #masebase resets games during __init__
+        self.observation_shape = state.shape
+        self.legal_actions = self.game.actions()
+        assert 'pass' in self.legal_actions, 'There should be noop action among the available actions!'
+        self.noop = 'pass'
+        self.id = emulator_id
+        if verbose > 2:
+            logging.debug('Intializing mazebase.{0} emulator_id={1}'.format(game, self.id))
+        # Mazebase generates random samples
+        # within itself in different modules across the package; therefore,
+        # we can't fix a random generator without rewriting mazebase.
+        # self.rand_gen = random.Random(args.random_seed)
 
 
     def reset(self):
