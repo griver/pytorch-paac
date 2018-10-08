@@ -51,7 +51,7 @@ class FactorizedLSTMCell(rnn.RNNCellBase):
             self.register_parameter('bias_hh', None)
 
         self.reset_parameters()
-        #self.generate_and_register_weights()
+        self.generate_and_register_weights()
 
 
     def reset_parameters(self):
