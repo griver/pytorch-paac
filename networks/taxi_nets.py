@@ -14,76 +14,6 @@ def preprocess_taxi_input(obs, infos, t_device):
     return obs, tasks_ids, coords, task_mask.unsqueeze(-1)
 
 
-class MultiTaskFFNetwork(nn.Module, BaseAgentNetwork):
-
-    def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=5, task_embed_dim=128, preprocess=None,
-                 use_location=False, hidden_size=256):
-        super(MultiTaskFFNetwork, self).__init__()
-        self._num_actions = num_actions
-        self._device = device
-        self._obs_shape = observation_shape
-        self._task_embed_dim = task_embed_dim
-        self._num_tasks = num_tasks
-        self._preprocess = preprocess if preprocess is not None else lambda *args: args
-        self.use_location = use_location
-        self._hidden_size = hidden_size
-        self._create_network()
-        self.apply(init_model_weights)
-        assert self.training == True, "Model won't train if self.training is False"
-
-    def _create_network(self):
-        C, H, W = self._obs_shape #(channels, height, width)
-        pad = 1 if H <= 5 else 0
-
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
-        self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
-
-        C_out, H_out, W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
-        #fc3 receives flattened conv network output + current task embedding
-        flatten_size = C_out*H_out*W_out + self._task_embed_dim
-        if self.use_location:
-            flatten_size += 2 #+ agent's location if specified
-
-        self.fc3 = nn.Linear(flatten_size, self._hidden_size)
-        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
-        self.fc_value = nn.Linear(self._hidden_size, 1)
-        self.fc_terminal = nn.Linear(self._hidden_size, 2) # two classes: is_done, not is_done.
-
-    def forward(self, obs, infos, masks, net_state):
-        obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
-        #conv
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size()[0], -1)
-        #task embed:
-        task_ids = self.embed1(task_ids)
-        if self.use_location:
-            x = torch.cat((x, task_ids, coords), 1)
-        else:
-            x = torch.cat((x, task_ids), 1)
-        #fc3(conv(obs) + embed(tasks))
-        x = F.relu(self.fc3(x))
-
-        action_logits = self.fc_policy(x)
-        action_distr = Categorical(logits=action_logits)
-        state_value = self.fc_value(x)
-        terminal_logits = self.fc_terminal(x)
-
-        return state_value, action_distr, terminal_logits, {}
-
-    def terminal_prediction_params(self):
-        for name, param in self.named_parameters():
-            if 'terminal' in name:
-                yield param
-
-    def actor_critic_params(self):
-        for name, param, in self.named_parameters():
-            if 'terminal' not in name:
-                yield param
-
-
 class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
                  num_tasks=6, task_embed_dim=128, preprocess=None,
@@ -167,6 +97,9 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
             if 'terminal' not in name:
                 yield param
 
+    def num_params(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
 
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def __init__(self, *args, **kwargs):
@@ -221,7 +154,6 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
         done_logits = self.fc_terminal(total_h)
         return state_value, act_distr, done_logits, net_state
 
-
     def init_rnn_state(self, batch_size=None):
         def get_shape(h):
             return (batch_size, h) if batch_size else (h,)
@@ -243,6 +175,67 @@ class TaskEnvRNN(MultiTaskLSTMNetwork):
             rnn_state[k] = rnn_state[k].detach()
         ##should call this after each weight change(i.e. either changed by optimizer or loaded from a file):
         self.task_lstm.generate_and_register_weights()
+
+
+class TaskEnv2(TaskEnvRNN):
+
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        pad = 1 if H <= 5 else 0
+
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
+
+        C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
+        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
+
+
+        self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
+        self.task_lstm = FactorizedLSTMCell(
+            obs_flatten+self._hidden_size, self._hidden_size,
+            self._num_tasks,
+            self._task_embed_dim
+        )
+
+        self.fc_embed = nn.Embedding(self._num_tasks, self._hidden_size)
+        fc_input = self._hidden_size + self._hidden_size  # fc_embed + task_rnn
+
+        self.fc_policy = nn.Linear(fc_input, self._num_actions)
+        self.fc_value = nn.Linear(fc_input, 1)
+        self.fc_terminal = nn.Linear(fc_input, 2)  #  two classes: 0-not_done, 1-is_done
+
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
+        x = F.relu(self.conv1(obs))
+        x = F.relu(self.conv2(x))
+        x = x.view(x.size(0), -1)
+        if self.use_location:
+            x = torch.cat([x, coords], dim=1)
+
+        t_masks = masks * task_masks  # if self.erase_task_memory else masks
+        env_h, env_c = net_state['env_h'] * masks, net_state['env_c'] * masks
+        task_h, task_c = net_state['task_h'] * t_masks, net_state['task_c'] * t_masks
+
+        env_h, env_c = self.env_lstm(x, (env_h, env_c))
+        x_env_h = torch.cat([x, env_h], dim=1)
+
+        task_h, task_c = self.task_lstm(x_env_h, (task_h, task_c), task_ids)
+
+        net_state = {'env_h':env_h, 'env_c':env_c,
+                     'task_h':task_h, 'task_c':task_c}
+
+        tasks = self.fc_embed(task_ids)
+        fc_input = torch.cat([task_h, tasks], dim=1)
+
+        state_value = self.fc_value(fc_input)
+
+        act_logits = self.fc_policy(fc_input)
+        act_distr = Categorical(logits=act_logits)
+
+        done_logits = self.fc_terminal(fc_input)
+
+        return state_value, act_distr, done_logits, net_state
+
 
 
 class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
@@ -284,10 +277,9 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
         return state_value, action_distr, terminal_logits, dict(hx=hx, cx=cx)
 
 
-
 taxi_nets = {
     'mt_lstm': MultiTaskLSTMNetwork,
     'mt_task_env':TaskEnvRNN,
+    'task_env2':TaskEnv2,
     'lstm': TaxiLSTMNetwork,
-    'mt_ff': MultiTaskFFNetwork,
 }

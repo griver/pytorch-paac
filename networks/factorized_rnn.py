@@ -6,22 +6,6 @@ import torch as th
 import math
 import warnings
 
-def diag_lstm_size(input_size, hidden_size, fact_size, bias=True):
-    W_ih = 4 * hidden_size * fact_size + fact_size * input_size + fact_size
-    W_hh = 4 * hidden_size * fact_size + fact_size * hidden_size + fact_size
-    total_size = W_hh + W_ih
-    if bias:
-        total_size += 4 * hidden_size * 2
-    return total_size
-
-def lstm_size(input_size, hidden_size, bias=True):
-    W_ih = 4*hidden_size*input_size
-    W_hh = 4*hidden_size*hidden_size
-    total_size = W_hh + W_ih
-    if bias:
-        total_size += 4*hidden_size*2
-    return total_size
-
 
 class FactorizedLSTMCell(rnn.RNNCellBase):
     def __init__(
@@ -29,7 +13,7 @@ class FactorizedLSTMCell(rnn.RNNCellBase):
       input_size,
       hidden_size,
       num_task,
-      task_embed_size=100,
+      task_embed_size=128,
       bias=True
     ):
         super(FactorizedLSTMCell, self).__init__()
@@ -165,3 +149,5 @@ def batch_linear(input_batch, weight_batch, bias=None):
     if bias is not None:
         output += bias
     return output
+
+

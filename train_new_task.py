@@ -97,7 +97,7 @@ def main(args):
             termination_model_coef=args.termination_model_coef
         )
         learner.evaluate = lambda net: mt_train.eval_network(
-            net, env_creator, 6
+            net, env_creator, 50
         )
         learner.train()
     finally:
