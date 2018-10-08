@@ -3,6 +3,7 @@ import numpy as np
 from six.moves import xrange
 from itertools import count
 
+
 def print_few_hot(state, encoder, cell_len=35):
     state = state.transpose((1, 2, 0))  # from [C,H,W] shape to a [H,W,C] shape
     line_sep = '\n' + '-' * (cell_len + 1) * state.shape[0]
@@ -30,16 +31,21 @@ def user_action(actions):
 
 
 if __name__ == '__main__':
-    import train_multi_task as tr
+    import train_new_task as tr
     #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-g fixed_taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 200 -df debug_logs -m 6 6 --arch lstm --random_seed 17 -fr -0.8 --view_size 5 --max_episode_steps 16'
+    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 300 ' \
+                '-df debug_logs -m 6 6 --arch lstm --random_seed 17 -fr -0.8 ' \
+                '--view_size 5 --max_episode_steps 16 -nt move_up move_down ' \
+                '-tl fc_terminal'
+
+
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
     args = tr.get_arg_parser().parse_args(args_line.split())
 
     env_creator = tr.TaxiGamesCreator(**vars(args))
     print('args:')
-    print(tr.args_to_str(args))
+    print(tr.mt_train.args_to_str(args))
 
     obs_shape = env_creator.obs_shape
     print('num_actions:', env_creator.num_actions, 'obs_shape:', obs_shape)

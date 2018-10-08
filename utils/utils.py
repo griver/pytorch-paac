@@ -213,6 +213,15 @@ def red(line):
 def yellow(line):
     return "\x1b[33;1m{0}\x1b[0m".format(line)
 
+def green(line):
+    return "\x1b[32;1m{0}\x1b[0m".format(line)
+
+def blue(line):
+    return "\x1b[34;1m{0}\x1b[0m".format(line)
+
+def cyan(line):
+    return "\x1b[36;1m{0}\x1b[0m".format(line)
+
 def print_dict(d, name=None):
     title = ' '.join(['=='*10, '{}','=='*10])
     if name is not None:

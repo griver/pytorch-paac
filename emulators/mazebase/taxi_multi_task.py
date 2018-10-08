@@ -148,9 +148,9 @@ class TaxiMultiTask(games.WithWaterAndBlocksMixin):
         self.reset_configs = self.get_reset_configs()
 
         finish_action = 'pass' if finish_action else None
-        if not preliminary_env:
-            print('ENV TASKS:',
-                  tasks if tasks else ['pickup','find_p','convey_p'])
+        #if not preliminary_env:
+        #    print('ENV TASKS:',
+        #          tasks if tasks else ['pickup','find_p','convey_p'])
 
         self.task_manager = TaskManager(
             tasks if tasks else ['pickup','find_p','convey_p'],

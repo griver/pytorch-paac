@@ -342,6 +342,7 @@ class ReachDestination(TaxiTask):
     def min_steps_to_complete(self, game):
         return game.distance(game.agent.location, game.target.location)
 
+
 class DropOff(TaxiTask):
     task_id = 7
 
