@@ -16,7 +16,7 @@ def preprocess_taxi_input(obs, infos, t_device):
 
 class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
-                 num_tasks=6, task_embed_dim=128, preprocess=None,
+                 num_tasks=12, task_embed_dim=128, preprocess=None,
                  use_location=False, hidden_size=256):
         super(MultiTaskLSTMNetwork, self).__init__()
         self._num_actions = num_actions

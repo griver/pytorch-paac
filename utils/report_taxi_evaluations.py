@@ -27,7 +27,7 @@ def create_custom_config(game_cls, taxi_passenger_relation, task_seq):
 
 def custom_task_eval(network, env_creator, test_count, **kwargs):
     """
-    Evaluates the network on the taxi_multi_task environment with a specified episode configuration.
+    Evaluates the network on the taxi environment with a specified episode configuration.
     To specify an episode config one should pass additional named args:
       taxi_passenger_relation - one of the possible values: "inside", "near", "far",
       tasks - a sequence of tasks names.

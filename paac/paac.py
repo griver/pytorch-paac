@@ -40,7 +40,7 @@ class ParallelActorCritic(object):
     CHECKPOINT_LAST = 'checkpoint_last.pth'
     CHECKPOINT_BEST = 'checkpoint_best.pth'
 
-    save_every = 5e5#10**6
+    save_every = 10**6
     print_every = 10240
     eval_every = 20*10240
 

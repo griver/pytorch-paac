@@ -135,10 +135,15 @@ def create_network(args, num_actions, obs_shape):
     return network
 
 
-def handle_command_line(parser):
-    args = parser.parse_args()
+def handle_command_line(parser, args_line=None):
+    if args_line:
+        args = parser.parse_args(args_line.split())
+    else:
+        args = parser.parse_args()
+
     args.random_seed = 3
     args.clip_norm_type = 'global'
+
     #we definitely don't want learning rate to become zero before the training ends:
     if args.lr_annealing_steps < args.max_global_steps:
         new_value = args.max_global_steps

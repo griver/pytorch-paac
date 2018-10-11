@@ -3,7 +3,7 @@
   "lr_annealing_steps": 80000000,
   "clip_norm": 0.5,
   "term_weights": [0.4, 1.6],
-  "game": "taxi_multi_task",
+  "game": "taxi",
   "num_workers": 8,
   "termination_model_coef": 0.0,
   "single_task_episodes": true,

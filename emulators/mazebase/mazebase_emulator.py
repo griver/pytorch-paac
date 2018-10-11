@@ -24,7 +24,9 @@ MAZEBASE_GAME_CLASSES = frozenset([
 ])
 
 def camel_to_snake_case(s):
-    'CamelCase --> snake_case'
+    """
+    CamelCase --> snake_case
+    """
     return ''.join([('_' if i and ch.isupper() else '') + ch.lower() for i, ch in enumerate(s)])
 
 MAZEBASE_GAMES = {camel_to_snake_case(cls.__name__):cls for cls in MAZEBASE_GAME_CLASSES}

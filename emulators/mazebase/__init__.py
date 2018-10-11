@@ -1,5 +1,5 @@
 from ..environment_creator import BaseEnvironmentCreator
-
+from .taxi_tasks import tasks_dict
 
 class MazebaseGamesCreator(BaseEnvironmentCreator):
     @staticmethod
@@ -51,12 +51,12 @@ class TaxiGamesCreator(MazebaseGamesCreator):
 
     @staticmethod
     def available_games(*args, **kwargs):
-        games = [
-          "taxi_game",
-          "taxi_multi_task",
-          "fixed_taxi_multi_task"
+        return [
+            "taxi",
+            "fixed_taxi",
+            "taxi_plus",
+            "old_taxi"
         ]
-        return games
 
     @staticmethod
     def get_environment_class():
@@ -65,9 +65,10 @@ class TaxiGamesCreator(MazebaseGamesCreator):
 
     @classmethod
     def add_required_args(cls, argparser):
+        available_tasks = sorted(tasks_dict.keys())
         show_default = " [default: %(default)s]"
-        argparser.add_argument('-g', default='taxi_multi_task', choices=['taxi_multi_task','fixed_taxi_multi_task'],
-                               help='Name of game', dest='game')
+        argparser.add_argument('-g', default='taxi', choices=cls.available_games(),
+                               help='Name of the game', dest='game')
         argparser.add_argument('-m', '--map_size', nargs=2, type=int, default=[5, 10],
                                help='Size of the environment. Expected format is (min_side_length, max_side_length).'
                                     ' At the begining of a new episode (map_weight, map_height) '
@@ -88,5 +89,6 @@ class TaxiGamesCreator(MazebaseGamesCreator):
                                help="if provided each episode equals one subtask")
         argparser.add_argument('--max_episode_steps', type=int, default=300,
                                help='Maximum number of steps in each episode')
-
+        argparser.add_argument('-t', '--tasks', nargs='*', type=str, default=['pickup','find_p','convey_p'],
+                               dest='tasks', choices=available_tasks, help='Which tasks to learn')
 

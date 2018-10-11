@@ -1,13 +1,14 @@
 from .mazebase_emulator import *
 
-from .taxi_game import TaxiGame, FewHotEncoder
-from .taxi_multi_task import TaxiMultiTask, FixedTaxiMultiTask
-
+from .taxi_game_objects import OldTaxi, FewHotEncoder, FewHotEncoderPlus
+from .taxi_game import Taxi, FixedTaxi
+from .taxi_plus_game import TaxiPlus
 
 TAXI_CLASSES = frozenset([
-    TaxiGame,
-    TaxiMultiTask,
-    FixedTaxiMultiTask
+    OldTaxi,
+    Taxi,
+    FixedTaxi,
+    TaxiPlus
 ])
 
 TAXI_GAMES = {camel_to_snake_case(cls.__name__):cls for cls in TAXI_CLASSES}
@@ -24,7 +25,6 @@ class TaxiEmulator(MazebaseEmulator):
                  view_size=DEFAULT_LOCAL_VIEW_SIZE, map_size=DEFAULT_MAP_SIZE,
                  random_seed=17, finish_action=False, fail_reward=0.,
                  single_task_episodes=False, max_episode_steps=300, preliminary_env=False, tasks=None, **unknown):
-        self._encoder = FewHotEncoder()
         if verbose >= 2:
             logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
@@ -36,6 +36,7 @@ class TaxiEmulator(MazebaseEmulator):
             featurizer = GlobalViewFeaturizer(notify=True)
         else:
             featurizer = LocalViewFeaturizer(window_size=view_size, notify=True)
+        self._encoder = FewHotEncoderPlus() if game == 'taxi_plus' else FewHotEncoder()
 
         game_seed = (self.emulator_id * random_seed) % (2**32)
         self.game = game_cls(map_size=map_size,

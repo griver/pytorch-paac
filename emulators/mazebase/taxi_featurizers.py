@@ -88,7 +88,7 @@ class FewHotEncoder(object):
 
     def __init__(self, selected_features=None):
         if selected_features is None:
-            selected_features = FewHotEncoder.DEFAULT_FEATURES
+            selected_features = self.DEFAULT_FEATURES
         self.selected_features = selected_features
         self.feat2id = {sf: i for i, sf in enumerate(self.selected_features)}
 
@@ -97,5 +97,22 @@ class FewHotEncoder(object):
         arr = np.zeros((xm, ym, zm), dtype=np.float32)
         for x, y in product(range(xm), range(ym)):
             for feat in observation[x][y]:
-                arr[x][y][self.feat2id[feat]] = 1
+                feat_id = self.feat2id.get(feat, None)
+                if feat_id is not None:
+                    arr[x][y][feat_id] = 1
         return arr
+
+
+class FewHotEncoderPlus(FewHotEncoder):
+    DEFAULT_FEATURES = [
+        'Block', 'Water',
+        'Goal',
+        'APickableItem',
+        'Passenger',
+        'Cargo',
+        'Agent',
+        'carries_item',
+        'Corner', 'OUT_OF_BOUND'
+    ]
+
+

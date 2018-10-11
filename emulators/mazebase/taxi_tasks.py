@@ -102,11 +102,11 @@ class FullTaxi(TaxiTask):
             return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, t_loc)
 
 
-class PickUp(TaxiTask):
+class PickUpPassenger(TaxiTask):
     task_id = 1
 
     def __init__(self, init_loc, *args, **kwargs):
-        super(PickUp,self).__init__(*args, **kwargs)
+        super(PickUpPassenger, self).__init__(*args, **kwargs)
         self.init_loc = init_loc
 
     @classmethod
@@ -118,7 +118,7 @@ class PickUp(TaxiTask):
     @classmethod
     def create(Class, game, **kwargs):
         init_loc = game.agent.location
-        kwargs.setdefault('duration', 50)
+        kwargs.setdefault('duration', 60)
         return Class(init_loc, **kwargs)
 
     def update_status(self, game)-> TaskStatus:
@@ -142,6 +142,7 @@ class PickUp(TaxiTask):
             return 0
         else:
             return 1 + game.distance(game.agent.location, game.passenger.location)
+
 
 class ConveyPassenger(TaxiTask):
     task_id = 2
@@ -187,6 +188,7 @@ class ConveyPassenger(TaxiTask):
             return 0
         else:
             return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, t_loc)
+
 
 class FindPassenger(TaxiTask):
     task_id = 3
@@ -246,7 +248,7 @@ class MoveUp(TaxiTask):
     @classmethod
     def create(Class, game, **kwargs):
         agent_loc = game.agent.location
-        kwargs.setdefault('duration', 50)
+        kwargs.setdefault('duration', 60)
         return Class(agent_loc, **kwargs)
 
     def update_status(self, game):
@@ -281,7 +283,7 @@ class MoveDown(TaxiTask):
     @classmethod
     def create(Class, game, **kwargs):
         agent_loc = game.agent.location
-        kwargs.setdefault('duration', 50)
+        kwargs.setdefault('duration', 60)
         return Class(agent_loc, **kwargs)
 
     def update_status(self, game):
@@ -343,11 +345,11 @@ class ReachDestination(TaxiTask):
         return game.distance(game.agent.location, game.target.location)
 
 
-class DropOff(TaxiTask):
+class DropOffPassenger(TaxiTask):
     task_id = 7
 
     def __init__(self, init_loc, *args, **kwargs):
-        super(DropOff,self).__init__(*args,**kwargs)
+        super(DropOffPassenger, self).__init__(*args, **kwargs)
         self.init_loc = init_loc
 
     @classmethod
@@ -357,7 +359,7 @@ class DropOff(TaxiTask):
     @classmethod
     def create(Class, game, **kwargs):
         init_loc = game.agent.location
-        kwargs.setdefault('duration',50)
+        kwargs.setdefault('duration',60)
         return Class(init_loc, **kwargs)
 
     def update_status(self, game)-> TaskStatus:
@@ -388,15 +390,64 @@ class DropOff(TaxiTask):
         else:
             return 2 + game.distance(a_loc, p_loc) + game.distance(p_loc, self.init_loc)
 
+
+class FindCargo(TaxiTask):
+    task_id = 8
+
+    def __init__(self, cargo_in_taxi, *args,**kwargs):
+        super(FindCargo, self).__init__(*args, **kwargs)
+        self.cargo_in_taxi = cargo_in_taxi
+
+    @classmethod
+    def is_available(Class, game):
+
+        agent_loc = game.agent.location
+        return game.cargo.is_pickedup is False \
+               and agent_loc != game.cargo.location \
+               and agent_loc != game.passenger.location
+
+    @classmethod
+    def create(Class, game, **kwargs):
+        in_taxi = game.cargo.is_pickedup
+        kwargs.setdefault('duration', 200)
+        return Class(in_taxi, **kwargs)
+
+    def allowed_action(self, action):
+        return action not in ('pickup','dropoff')
+
+    def update_status(self, game)-> TaskStatus:
+        self.step += 1
+        loc_p = game.cargo.location
+        loc_t = game.agent.location
+
+        finish_condition = (loc_t == loc_p) and (not game.cargo.is_pickedup)
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == game.agent.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+
+        return self.status
+
+    def min_steps_to_complete(self, game):
+        return game.distance(game.agent.location, game.cargo.location)
+
+
+
 tasks_dict = dict(
-    pickup=PickUp,
-    dropoff=DropOff,
+    pickup=PickUpPassenger,
+    dropoff=DropOffPassenger,
     find_p=FindPassenger,
     convey_p=ConveyPassenger,
     reach_d=ReachDestination,
     move_up=MoveUp,
     move_down=MoveDown,
-    full_taxi=FullTaxi
+    full_taxi=FullTaxi,
+    find_c=FindCargo
 )
 
 class AbstractTaskManager(object):

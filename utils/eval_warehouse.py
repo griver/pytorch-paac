@@ -238,7 +238,7 @@ class TaskStats(pd.DataFrame):
         '''
         Returns a string representation of the data about an agent's performance one the specified task.
         Example of a returned string:
-          'PickUp(20): succ=60.00% fail=35.00% runn=5.00%'
+          'PickUpPassenger(20): succ=60.00% fail=35.00% runn=5.00%'
         '''
         data = self[self['task_id'] == task_id]
         total_num = len(data)

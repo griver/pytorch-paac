@@ -5,7 +5,7 @@
   "clip_norm": 0.7,
   "view_size": [9, 9],
   "termination_model_coef": 1.0,
-  "game": "taxi_multi_task",
+  "game": "taxi",
   "num_workers": 4,
   "entropy_coef": 0.01,
   "initial_lr": 0.0007,

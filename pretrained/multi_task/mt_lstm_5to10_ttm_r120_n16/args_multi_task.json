@@ -7,7 +7,7 @@
   "lr_annealing_steps": 100000000,
   "device": "cuda",
   "random_seed": 3,
-  "game": "taxi_multi_task",
+  "game": "taxi",
   "finish_action": false,
   "loss_scaling": 1.0,
   "fail_reward": -0.8,

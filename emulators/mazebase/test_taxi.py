@@ -9,7 +9,8 @@ def print_few_hot(state, encoder, cell_len=35):
     line_sep = '\n' + '-' * (cell_len + 1) * state.shape[0]
     cell_str = '{0:^' + str(cell_len) + '}'
     legend = sorted((i, f) for f, i in encoder.feat2id.items())
-    print('Legend:', legend)
+
+    print('Legend:', ' '.join('{}:{} |'.format(i,s) for i,s in legend))
 
     xd, yd, zd = state.shape
     # transpose first two dimentions
@@ -31,21 +32,20 @@ def user_action(actions):
 
 
 if __name__ == '__main__':
-    import train_new_task as tr
-    #args_line = '-g taxi_multi_task -d cpu -ew 1 -ec 2 ' + \
+    import train_multi_task as tr
+    #args_line = '-g taxi -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
-    args_line = '-g taxi_multi_task -d cpu -w 1 -n 1 --max_global_steps 300 ' \
+    args_line = '-g taxi_plus -d cpu -w 1 -n 1 --max_global_steps 300 ' \
                 '-df debug_logs -m 6 6 --arch lstm --random_seed 17 -fr -0.8 ' \
-                '--view_size 5 --max_episode_steps 16 -nt move_up move_down ' \
-                '-tl fc_terminal'
+                '--view_size 5 --max_episode_steps 300 -t pickup find_p convey_p find_c' \
 
 
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
-    args = tr.get_arg_parser().parse_args(args_line.split())
+    args = tr.handle_command_line(tr.get_arg_parser(), args_line)
 
     env_creator = tr.TaxiGamesCreator(**vars(args))
     print('args:')
-    print(tr.mt_train.args_to_str(args))
+    print(tr.args_to_str(args))
 
     obs_shape = env_creator.obs_shape
     print('num_actions:', env_creator.num_actions, 'obs_shape:', obs_shape)
@@ -69,6 +69,8 @@ if __name__ == '__main__':
             print('-----------------------------------------------------------')
             print('task[{0}]={1} | info[{0}]={2} | state[{0}]:'.format(t+1, env.game.task(), env.game.agent.location))
             env.game.display()
+            # print('few_hot_encoding:')
+            # print_few_hot(state, env._encoder)
 
             if is_done:
                 break

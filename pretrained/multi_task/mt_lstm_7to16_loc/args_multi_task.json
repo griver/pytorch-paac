@@ -26,5 +26,5 @@
   "critic_coef": 0.5,
   "termination_model_coef": 1.0,
   "fail_reward": -0.8,
-  "game": "taxi_multi_task"
+  "game": "taxi"
 }
