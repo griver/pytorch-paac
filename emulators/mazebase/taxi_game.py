@@ -275,7 +275,7 @@ class Taxi(games.WithWaterAndBlocksMixin):
         if finished_task.status != TaskStatus.RUNNING:
             if (self.target.location == self.passenger.location) \
             and (self.passenger.is_pickedup is False):
-                loc1, loc2 = self._get_placement_locs(self.agent.location, 2)
+                loc1, loc2 = self._get_placement_locs(self.agent, 2)
                 new_loc = loc1 if loc1 != self.target.location else loc2
                 self._move_item(self.passenger.id, new_loc)
 

@@ -130,7 +130,8 @@ def create_network(args, num_actions, obs_shape):
     #network explicitly stores device in order to facilitate casting of incoming tensors
     network = NetworkCls(num_actions, obs_shape, device,
                          preprocess=preprocess_taxi_input,
-                         use_location=args.use_location)
+                         use_location=args.use_location,
+                         num_tasks=(6 if args.game != 'taxi_plus' else 12))
     network = network.to(device)
     return network
 
