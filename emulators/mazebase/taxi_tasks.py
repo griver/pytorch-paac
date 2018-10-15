@@ -17,7 +17,7 @@ class TaxiTask(object):
         super(TaxiTask, self).__init__()
         self.status = status
         self.step = 0
-        self.duration = 10 #duration
+        self.duration = duration
         self.finish_action=finish_action
 
     def allowed_action(self, action: str) -> bool:

@@ -37,7 +37,7 @@ if __name__ == '__main__':
     #    "--max_global_steps 500"
     args_line = '-g taxi_plus -d cpu -w 1 -n 1 --max_global_steps 300 ' \
                 '-df debug_logs -m 6 6 --arch lstm --random_seed 17 -fr -0.8 ' \
-                '--view_size 5 --max_episode_steps 300 -t find_p find_c pickup_c convey_c'\
+                '--view_size 5 --max_episode_steps 300 -t find_p pickup convey_p find_c pickup_c convey_c'\
 
 
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
