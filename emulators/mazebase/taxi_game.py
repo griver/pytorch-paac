@@ -5,8 +5,9 @@ from mazebase.utils.mazeutils import choice, MazeException
 from mazebase.utils import creationutils
 from .taxi_featurizers import  LocalViewFeaturizer, GlobalViewFeaturizer, FewHotEncoder
 
+
 from .taxi_game_objects import Passenger, TaxiAgent, RestrainedMultiTaskTaxiAgent, rnd
-from .taxi_tasks import TaskManager, TaskStatus
+from .taxi_tasks import TaskManager, TaskStatus, CargoAndPassengerTaskManager
 
 from collections import namedtuple
 from enum import Enum, IntEnum
@@ -124,7 +125,7 @@ class Taxi(games.WithWaterAndBlocksMixin):
         #    print('ENV TASKS:',
         #          tasks if tasks else ['pickup','find_p','convey_p'])
 
-        self.task_manager = TaskManager(
+        self.task_manager = CargoAndPassengerTaskManager(
             tasks if tasks else ['pickup','find_p','convey_p'],
             extra_task_kwargs={"finish_action":finish_action}
         )

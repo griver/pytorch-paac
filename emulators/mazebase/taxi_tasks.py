@@ -17,7 +17,7 @@ class TaxiTask(object):
         super(TaxiTask, self).__init__()
         self.status = status
         self.step = 0
-        self.duration = duration
+        self.duration = 10 #duration
         self.finish_action=finish_action
 
     def allowed_action(self, action: str) -> bool:
@@ -199,8 +199,11 @@ class FindPassenger(TaxiTask):
 
     @classmethod
     def is_available(Class, game):
+        agent_loc = game.agent.location
+        #check if it makes sense to find passenger:
         return game.passenger.is_pickedup is False \
-               and game.passenger.location != game.agent.location
+                          and agent_loc != game.passenger.location \
+                          and game.agent.item is None
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -400,11 +403,11 @@ class FindCargo(TaxiTask):
 
     @classmethod
     def is_available(Class, game):
-
         agent_loc = game.agent.location
+        #check if it makes sense to find the cargo:
         return game.cargo.is_pickedup is False \
                and agent_loc != game.cargo.location \
-               and agent_loc != game.passenger.location
+               and game.agent.item is None
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -438,6 +441,94 @@ class FindCargo(TaxiTask):
 
 
 
+class PickUpCargo(TaxiTask):
+    task_id = 9
+
+    def __init__(self, init_loc, *args, **kwargs):
+        super(PickUpCargo, self).__init__(*args, **kwargs)
+        self.init_loc = init_loc
+
+    @classmethod
+    def is_available(Class, game):
+
+        return (not game.cargo.is_pickedup) and \
+               (game.cargo.location == game.agent.location)
+
+    @classmethod
+    def create(Class, game, **kwargs):
+        init_loc = game.agent.location
+        kwargs.setdefault('duration', 60)
+        return Class(init_loc, **kwargs)
+
+    def update_status(self, game)-> TaskStatus:
+        self.step += 1
+
+        finish_condition = game.cargo.is_pickedup
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == game.agent.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+        return self.status
+
+    def min_steps_to_complete(self, game):
+        cargo_in_taxi = game.cargo.is_pickedup
+        if cargo_in_taxi:
+            return 0
+        else:
+            return 1 + game.distance(game.agent.location, game.cargo.location)
+
+
+class ConveyCargo(TaxiTask):
+    task_id = 10
+
+    def __init__(self, *args, **kwargs):
+        super(ConveyCargo,self).__init__(*args,**kwargs)
+
+    @classmethod
+    def is_available(Class, game):
+        return game.cargo.is_pickedup #and\
+               #game.agent.location != game.target.location
+
+    @classmethod
+    def create(Class, game, **kwargs):
+        kwargs.setdefault('duration',200)
+        return Class(**kwargs)
+
+    def update_status(self, game)-> TaskStatus:
+        self.step += 1
+
+        finish_condition = (not game.cargo.is_pickedup) and\
+                           (game.target.location == game.cargo.location)
+
+        finish_act = (self.finish_action is None) \
+                     or (self.finish_action == game.agent.last_performed_act)
+
+        if finish_condition and finish_act:
+            self.status = TaskStatus.SUCCESS
+        elif self.step >= self.duration:
+            self.status = TaskStatus.FAIL
+        else:
+            self.status = TaskStatus.RUNNING
+        return self.status
+
+    def min_steps_to_complete(self, game):
+        c_loc = game.cargo.location
+        a_loc = game.agent.location
+        t_loc = game.target.location
+        cargo_in_taxi = game.cargo.is_pickedup
+        if cargo_in_taxi:
+            return 1 + game.distance(a_loc, t_loc)
+        elif c_loc == t_loc:
+            return 0
+        else:
+            return 2 + game.distance(a_loc, c_loc) + game.distance(c_loc, t_loc)
+
+
 tasks_dict = dict(
     pickup=PickUpPassenger,
     dropoff=DropOffPassenger,
@@ -447,7 +538,9 @@ tasks_dict = dict(
     move_up=MoveUp,
     move_down=MoveDown,
     full_taxi=FullTaxi,
-    find_c=FindCargo
+    find_c=FindCargo,
+    pickup_c=PickUpCargo,
+    convey_c=ConveyCargo,
 )
 
 class AbstractTaskManager(object):
@@ -509,6 +602,49 @@ class TaskManager(AbstractTaskManager):
         all_vars = [task_cls.required_state_vars for task_cls in self._task_types]
         all_required_vars.update(*all_vars)
         return all_required_vars
+
+
+class CargoAndPassengerTaskManager(TaskManager):
+
+
+    def _related_tasks(self, task_name1, task_name2):
+        """
+        Return True if two tasks are related(in a sense they both
+        deal with the same object). The task is not related to itself.
+        """
+        if task_name1 == task_name2:
+            return False
+
+        if ('Cargo' in  task_name1) and ('Cargo' in task_name2):
+            return  True
+
+        if ('Passenger' in task_name1) and ('Passenger' in task_name2):
+            return True
+
+        return False
+
+    def next(self, game, rnd_state):
+
+        prev_task = game._tasks_history[-1]['name'] if game._tasks_history else ''
+
+        related_tasks = [self._related_tasks(prev_task, t.__name__) for t in self._task_types]
+        available_tasks = [t.is_available(game) for t in self._task_types]
+        available_and_related_tasks = np.logical_and(available_tasks, related_tasks)
+
+        not_finish_task = ('Dropoff' not in prev_task) and ('Convey' not in prev_task)
+        if not_finish_task and any(available_and_related_tasks):
+            candidate_mask = available_and_related_tasks
+        else:
+            candidate_mask = available_tasks
+
+        priorities = self._priorities[candidate_mask]
+        task_types = self._task_types[candidate_mask]
+
+        selected_task_type = rnd_state.choice(task_types,
+                                              p=priorities/sum(priorities))
+        task = selected_task_type.create(game, **self.extra_task_kwargs)
+
+        return task
 
 
 class TaskStats(object):

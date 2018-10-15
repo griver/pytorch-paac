@@ -1,4 +1,4 @@
-from .taxi_game import Taxi, Relation
+from .taxi_game import Taxi, Relation, TaxiResetConfig
 import itertools as it
 import mazebase.items as maze_items
 from mazebase import games
@@ -72,14 +72,17 @@ class TaxiPlus(Taxi):
         """
         if finished_task.status != TaskStatus.RUNNING:
             respawn_list = []
-            #respawn passenger if he has reached target location:
-            if (self.target.location == self.passenger.location) \
-            and (self.passenger.is_pickedup is False):
-                respawn_list.append(self.passenger)
-            #respawn cargo if agent has finished a task at the same location as target:
-            if isinstance(finished_task, (taxi_tasks.ConveyPassenger, taxi_tasks.DropOffPassenger)):
-                if self.cargo.is_pickedup:
+            passenger_in_target = (self.target.location == self.passenger.location) \
+                                  and (self.passenger.is_pickedup is False)
+
+            cargo_in_target = (self.target.location == self.cargo.location) \
+                                  and (self.cargo.is_pickedup is False)
+
+            #if one of the pickable items has reached the target respawn all of them!
+            if passenger_in_target or cargo_in_target:
+                if self.agent.item is not None:
                     self.agent.forced_dropoff()
+                respawn_list.append(self.passenger)
                 respawn_list.append(self.cargo)
 
             if respawn_list:
