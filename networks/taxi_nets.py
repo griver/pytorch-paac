@@ -237,7 +237,7 @@ class TaskEnvHeavyEmbed(TaskEnvRNN):
         return state_value, act_distr, done_logits, net_state
 
 
-class TaskEnv3(MultiTaskLSTMNetwork):
+class TaskEnvSimple(MultiTaskLSTMNetwork):
 
     def _create_network(self):
         C, H, W = self._obs_shape
@@ -350,7 +350,7 @@ class TaxiLSTMNetwork(MultiTaskLSTMNetwork):
 taxi_nets = {
     'mt_lstm': MultiTaskLSTMNetwork,
     'mt_task_env':TaskEnvRNN,
-    'task_env2':TaskEnvHeavyEmbed,
-    'task_env3':TaskEnv3,
+    'task_env_head_embed':TaskEnvHeavyEmbed,
+    'task_env_simple':TaskEnvSimple,
     'lstm': TaxiLSTMNetwork,
 }
