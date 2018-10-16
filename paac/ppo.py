@@ -16,10 +16,13 @@ class ProximalPolicyOptimization(ParallelActorCritic):
             'log_probs',
             'rewards',
             'masks',
-            'next_v'
+            'next_v',
+            #do i really need the following ones?
+            'rnn_states',
+            'returns'
         ]
 
-        def __init__(self, states, actions, values, log_probs, rewards, masks, next_v):
+        def __init__(self, states, actions, values, log_probs, rewards, masks, next_v, rnn_states=None, returns=None):
             self.states = states
             self.actions = actions
             self.values = values
@@ -27,19 +30,21 @@ class ProximalPolicyOptimization(ParallelActorCritic):
             self.rewards = rewards
             self.masks = masks
             self.next_v = next_v
+            self.rnn_states = rnn_states
+            self.returns = returns
 
-    def __init__(self, *args, *kwargs):
+    def __init__(self, *args, **kwargs):
+        self.ppo_epochs = kwargs.pop('ppo_epochs', 4)
+        self.mini_batch_size = kwargs.pop('mini_batch_size', 4)#or 32?
+        self.ppo_clip = kwargs.pop('ppo_clip', 0.1)
+        kwargs.setdefault('critic_coef', 1.0)
+
         super(ProximalPolicyOptimization, self).__init__(*args, **kwargs)
-        self.ppo_epochs=4
-        self.mini_batch_size=32 #or 256?
-        self.ppo_clip = 0.2
 
-    # rollouts = RolloutStorage(args.num_steps, args.num_processes,
-    #                           envs.observation_space.shape, envs.action_space,
-    #                           actor_critic.recurrent_hidden_state_size)
-    #
+
+
     def rollout(self, state, info, mask, rnn_state):
-          pass
+        states, actions, values, log_probs, rewards, masks = [[] for _ in range(6)]
 
 
 
