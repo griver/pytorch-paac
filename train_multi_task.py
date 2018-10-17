@@ -142,7 +142,9 @@ def handle_command_line(parser, args_line=None):
     else:
         args = parser.parse_args()
 
-    args.random_seed = 3
+    if not hasattr(args, 'random_seed'):
+        args.random_seed = 3
+
     args.clip_norm_type = 'global'
 
     #we definitely don't want learning rate to become zero before the training ends:
