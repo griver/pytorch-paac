@@ -176,6 +176,7 @@ class ParallelActorCritic(object):
                     curr_mean_r = stats.mean_r
 
             if self.global_step - self.last_saving_step >= self.save_every:
+
                 is_best = False
                 if curr_mean_r > best_mean_r:
                     best_mean_r = curr_mean_r
@@ -184,7 +185,11 @@ class ParallelActorCritic(object):
                 training_stats = []
                 self.last_saving_step = self.global_step
 
-        self._save_progress(self.checkpoint_dir, is_best=False)
+        if len(training_stats) and training_stats[-1][0] != self.global_step:
+            #if we haven't already evaluated the network at the current step:
+            training_stats.append((self.global_step, self.evaluate(self.network)))
+
+        self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=False)
         logging.info('Training ended at step %d' % self.global_step)
 
     def rollout(self, state, info, mask, rnn_state):
