@@ -41,8 +41,6 @@ class ProximalPolicyOptimization(ParallelActorCritic):
 
         super(ProximalPolicyOptimization, self).__init__(*args, **kwargs)
 
-
-
     def rollout(self, state, info, mask, rnn_state):
         states, actions, values, log_probs, rewards, masks = [[] for _ in range(6)]
 

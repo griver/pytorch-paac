@@ -2,6 +2,7 @@ from .paac_nets import torch, nn, F, np, init_model_weights, calc_output_shape
 from .paac_nets import Categorical, BaseAgentNetwork
 from .factorized_rnn import FactorizedLSTMCell
 
+
 def preprocess_taxi_input(obs, infos, t_device):
 
     obs = np.ascontiguousarray(obs, dtype=np.float32)
