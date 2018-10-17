@@ -4,6 +4,10 @@
 **/.ipynb_checkpoints/
 notebooks/
 
+# PRETRAINED MODELS #
+#####################
+pretrained/
+
 # BYTECODE #
 ############
 *.pyc 
