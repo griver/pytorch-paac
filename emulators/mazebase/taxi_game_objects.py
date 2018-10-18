@@ -131,10 +131,11 @@ class Transport(agents.SingleTileMovable):
 
     def _pickup(self):
         x,y = self.location
-        pickable = self.game._tile_get_block((x,y), APickableItem)
-        if pickable is not None and self.is_empty():
-            pickable.pickup()
-            self.item = pickable
+        if self.is_empty():
+            pickable = self.game._tile_get_block((x,y), APickableItem)
+            if pickable is not None:
+                pickable.pickup()
+                self.item = pickable
 
     def _dropoff(self):
         if not self.is_empty():

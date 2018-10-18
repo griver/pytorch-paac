@@ -78,6 +78,7 @@ class FullTaxi(TaxiTask):
         self.step += 1
         finish_condition = (not game.passenger.is_pickedup) \
                            and (game.passenger.location == game.target.location)
+
         finish_act = (self.finish_action is None) \
                      or (self.finish_action == game.agent.last_performed_act)
 
@@ -202,8 +203,8 @@ class FindPassenger(TaxiTask):
         agent_loc = game.agent.location
         #check if it makes sense to find passenger:
         return game.passenger.is_pickedup is False \
-                          and agent_loc != game.passenger.location \
-                          and game.agent.item is None
+                          and agent_loc != game.passenger.location #\
+                          #and game.agent.is_empty()
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -309,19 +310,18 @@ class MoveDown(TaxiTask):
 class ReachDestination(TaxiTask):
     task_id = 6
 
-    def __init__(self, passenger_in_taxi, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super(ReachDestination, self).__init__(*args, **kwargs)
-        self.passenger_in_taxi = passenger_in_taxi
 
     @classmethod
     def is_available(Class, game):
-        return game.target.location != game.agent.location
+        return game.target.location != game.agent.location \
+               and game.agent.is_empty()
 
     @classmethod
     def create(Class, game, **kwargs):
-        in_taxi = game.passenger.is_pickedup
         kwargs.setdefault('duration', 200)
-        return Class(in_taxi, **kwargs)
+        return Class(**kwargs)
 
     def allowed_action(self, action):
         return action not in ('pickup','dropoff')
@@ -329,8 +329,7 @@ class ReachDestination(TaxiTask):
     def update_status(self, game)-> TaskStatus:
         self.step += 1
 
-        finish_condition = (game.agent.location == game.target.location) \
-                           and (game.passenger.is_pickedup == self.passenger_in_taxi)
+        finish_condition = (game.agent.location == game.target.location)
 
         finish_act = (self.finish_action is None) \
                      or (self.finish_action == game.agent.last_performed_act)
@@ -405,9 +404,8 @@ class FindCargo(TaxiTask):
     def is_available(Class, game):
         agent_loc = game.agent.location
         #check if it makes sense to find the cargo:
-        return game.cargo.is_pickedup is False \
+        return game.agent.is_empty() \
                and agent_loc != game.cargo.location \
-               and game.agent.item is None
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -606,7 +604,6 @@ class TaskManager(AbstractTaskManager):
 
 class CargoAndPassengerTaskManager(TaskManager):
 
-
     def _related_tasks(self, task_name1, task_name2):
         """
         Return True if two tasks are related(in a sense they both
@@ -623,7 +620,7 @@ class CargoAndPassengerTaskManager(TaskManager):
 
         return False
 
-    def next(self, game, rnd_state):
+    def old_next(self, game, rnd_state):
 
         prev_task = game._tasks_history[-1]['name'] if game._tasks_history else ''
 
@@ -642,6 +639,33 @@ class CargoAndPassengerTaskManager(TaskManager):
 
         selected_task_type = rnd_state.choice(task_types,
                                               p=priorities/sum(priorities))
+        task = selected_task_type.create(game, **self.extra_task_kwargs)
+
+        return task
+
+    def next(self, game, rnd_state):
+        """
+        Select next avaialble task while preventing
+        tasks ReachPassenger and ReachCargo looping between each other
+        """
+        def is_find_task(name_or_type):
+            name = name_or_type if type(name_or_type) is str else name_or_type.__name__
+            return "Find" in name
+
+        prev_task = game._tasks_history[-1]['name'] if game._tasks_history else ''
+
+        available_tasks = [t.is_available(game) for t in self._task_types]
+        if is_find_task(prev_task):
+            not_find_task = [not is_find_task(t) for t in self._task_types]
+            available_and_not_reach = np.logical_and(available_tasks, not_find_task)
+            if any(available_and_not_reach):
+                available_tasks = available_and_not_reach
+
+        priorities = self._priorities[available_tasks]
+        task_types = self._task_types[available_tasks]
+
+        selected_task_type = rnd_state.choice(task_types,
+                                              p=priorities / sum(priorities))
         task = selected_task_type.create(game, **self.extra_task_kwargs)
 
         return task

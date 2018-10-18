@@ -72,18 +72,14 @@ class TaxiPlus(Taxi):
         """
         if finished_task.status != TaskStatus.RUNNING:
             respawn_list = []
-            passenger_in_target = (self.target.location == self.passenger.location) \
-                                  and (self.passenger.is_pickedup is False)
-
-            cargo_in_target = (self.target.location == self.cargo.location) \
-                                  and (self.cargo.is_pickedup is False)
-
-            #if one of the pickable items has reached the target respawn all of them!
-            if passenger_in_target or cargo_in_target:
-                if self.agent.item is not None:
-                    self.agent.forced_dropoff()
-                respawn_list.append(self.passenger)
-                respawn_list.append(self.cargo)
+            # respawn object after each task if object is far away from taxi
+            # or was dropped off in the target location
+            for obj in [self.passenger, self.cargo]:
+                far_from_taxi = obj.location != self.agent.location
+                dropped_in_target = (obj.location == self.target.location) and \
+                                    obj.is_pickedup is False
+                if dropped_in_target or far_from_taxi:
+                    respawn_list.append(obj)
 
             if respawn_list:
                 #get 3 random(except locations of the agent and target)
