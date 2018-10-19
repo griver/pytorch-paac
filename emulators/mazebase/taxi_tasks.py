@@ -153,8 +153,7 @@ class ConveyPassenger(TaxiTask):
 
     @classmethod
     def is_available(Class, game):
-        return game.passenger.is_pickedup #and\
-               #game.agent.location != game.target.location
+        return game.passenger.is_pickedup
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -537,6 +536,7 @@ tasks_dict = dict(
     convey_c=ConveyCargo,
 )
 
+
 class AbstractTaskManager(object):
 
     def next(self, *args, **kwargs):
@@ -545,8 +545,10 @@ class AbstractTaskManager(object):
     def required_state_vars(self):
         raise NotImplementedError('This method is not implemented yet!')
 
+
 class TaskManagerError(Exception):
     pass
+
 
 class TaskManager(AbstractTaskManager):
     """
@@ -627,23 +629,39 @@ class LifelongTaskManager(TaskManager):
         passenger_seq = [t for t in passenger_seq if t in given_tasks]
         return dict(cargo_seq=cargo_seq, passenger_seq=passenger_seq)
 
+
+    def select_from_group(self, group_name, game, rnd_state):
+        next_group = group_name
+
+        tasks = self.task_seqs[group_name]
+        is_available = [t.is_available(game) for t in tasks]
+        if any(is_available):
+            indices = np.arange(len(tasks))
+            indices = indices[is_available]
+            idx = rnd_state.choice(indices)
+            task = tasks[idx]
+            #no need to assign group if this is a final subtask.
+            if task == tasks[-1]: next_group = None
+        else:
+            task = None
+            next_group = None
+
+        return task, next_group
+
     def next(self, game, rnd_state):
 
         if self.current_seq is not None:
-            tasks = self.task_seqs[self.current_seq]
-            for i in range(self.prev_task_id + 1, len(tasks)):
-                t = tasks[i]
-                if t.is_available(game):
-                    self.prev_task_id = i
-                    return t.create(game, **self.extra_task_kwargs)
+            task, next_seq = self.select_from_group(self.current_seq, game, rnd_state)
+            if task:
+                self.current_seq = next_seq
+                return task.create(game, **self.extra_task_kwargs)
+
 
         for seq in rnd_state.permutation(sorted(self.task_seqs.keys())):
-            tasks = self.task_seqs[seq]
-            for i,t in enumerate(tasks):
-                if t.is_available(game):
-                    self.prev_task_id = i
-                    self.current_seq = seq
-                    return t.create(game, **self.extra_task_kwargs)
+            task, next_seq = self.select_from_group(seq, game, rnd_state)
+            if task:
+                self.current_seq = next_seq
+                return task.create(game, **self.extra_task_kwargs)
         else:
             task_names = {k:[el.__name__ for el in v] for k,v in self.task_seqs.items()}
             msg = "Can't find the next available task({0}) at the state:" \
@@ -653,7 +671,6 @@ class LifelongTaskManager(TaskManager):
                 type(game.agent.item).__name__ if game.agent.item else None
             )
             raise TaskManagerError(msg)
-
 
     def old_next(self, game, rnd_state):
 
@@ -704,7 +721,6 @@ class LifelongTaskManager(TaskManager):
         task = selected_task_type.create(game, **self.extra_task_kwargs)
 
         return task
-
 
 
 class TaskStats(object):

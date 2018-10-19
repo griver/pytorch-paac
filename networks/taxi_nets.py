@@ -102,6 +102,54 @@ class MultiTaskLSTMNetwork(nn.Module, BaseAgentNetwork):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
+class FactorLSTMNNetwork(MultiTaskLSTMNetwork):
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        pad = 1 if H <= 5 else 0
+
+        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
+
+        C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
+        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
+
+        self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
+        self.task_lstm = FactorizedLSTMCell(
+            obs_flatten + self._hidden_size, self._hidden_size,
+            self._num_tasks,
+            self._task_embed_dim
+        )
+        self.fc_policy = nn.Linear(2 * self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(2 * self._hidden_size, 1)
+        self.fc_terminal = nn.Linear(2 * self._hidden_size, 2)  #  two classes: 0-not_done, 1-is_done
+
+    def forward(self, obs, infos, masks, net_state):
+        obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
+        x = F.relu(self.conv1(obs))
+        x = F.relu(self.conv2(x))
+        x = x.view(x.size(0), -1)
+        if self.use_location:
+            x = torch.cat([x, coords], dim=1)
+
+        t_masks = masks * task_masks  # if self.erase_task_memory else masks
+        env_h, env_c = net_state['env_h'] * masks, net_state['env_c'] * masks
+        task_h, task_c = net_state['task_h'] * t_masks, net_state['task_c'] * t_masks
+
+        env_h, env_c = self.env_lstm(x, (env_h, env_c))
+        x_env_h = torch.cat([x, env_h], dim=1)
+
+        task_h, task_c = self.task_lstm(x_env_h, (task_h, task_c), task_ids)
+        total_h = torch.cat([task_h, env_h], dim=1)
+
+        net_state = {'env_h':env_h, 'env_c':env_c,
+                     'task_h':task_h, 'task_c':task_c}
+        state_value = self.fc_value(total_h)
+        act_logits = self.fc_policy(total_h)
+        act_distr = Categorical(logits=act_logits)
+        done_logits = self.fc_terminal(total_h)
+        return state_value, act_distr, done_logits, net_state
+
+
 class TaskEnvRNN(MultiTaskLSTMNetwork):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault('hidden_size', 208)
