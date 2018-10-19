@@ -7,7 +7,7 @@ from .taxi_featurizers import  LocalViewFeaturizer, GlobalViewFeaturizer, FewHot
 
 
 from .taxi_game_objects import Passenger, TaxiAgent, RestrainedMultiTaskTaxiAgent, rnd
-from .taxi_tasks import TaskManager, TaskStatus, CargoAndPassengerTaskManager
+from .taxi_tasks import TaskManager, TaskStatus, LifelongTaskManager
 
 from collections import namedtuple
 from enum import Enum, IntEnum
@@ -80,6 +80,7 @@ class ImageViewMixin(games.BaseMazeGame):
 class Taxi(games.WithWaterAndBlocksMixin):
     ItemRelation = Relation
     InitState = TaxiResetConfig
+    TaskManager = TaskManager
 
     @staticmethod
     def get_reset_configs():
@@ -125,8 +126,8 @@ class Taxi(games.WithWaterAndBlocksMixin):
         #    print('ENV TASKS:',
         #          tasks if tasks else ['pickup','find_p','convey_p'])
 
-        self.task_manager = CargoAndPassengerTaskManager(
-            tasks if tasks else ['pickup','find_p','convey_p'],
+        self.task_manager = self.TaskManager(
+            tasks if tasks else ['pickup','find_p','reach_d', 'dropoff'],
             extra_task_kwargs={"finish_action":finish_action}
         )
         self.single_task = single_task_episodes #episode equals one task

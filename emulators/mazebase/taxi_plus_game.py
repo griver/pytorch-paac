@@ -6,7 +6,7 @@ from mazebase.utils.mazeutils import  choice, MazeException
 from mazebase.utils import creationutils
 
 from .taxi_game_objects import Passenger, Cargo, TaxiAgent, rnd
-from .taxi_tasks import TaskStatus
+from .taxi_tasks import TaskStatus, LifelongTaskManager
 from . import taxi_tasks
 
 class TaxiPlus(Taxi):
@@ -15,6 +15,7 @@ class TaxiPlus(Taxi):
     Goal object can appear only in one of the four corners
     and the new cargo object is added to the map.
     """
+    TaskManager = LifelongTaskManager
 
     def __init__(self, *args, **kwargs):
         super(TaxiPlus, self).__init__(*args, **kwargs)

@@ -202,9 +202,7 @@ class FindPassenger(TaxiTask):
     def is_available(Class, game):
         agent_loc = game.agent.location
         #check if it makes sense to find passenger:
-        return game.passenger.is_pickedup is False \
-                          and agent_loc != game.passenger.location #\
-                          #and game.agent.is_empty()
+        return agent_loc != game.passenger.location
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -315,8 +313,7 @@ class ReachDestination(TaxiTask):
 
     @classmethod
     def is_available(Class, game):
-        return game.target.location != game.agent.location \
-               and game.agent.is_empty()
+        return game.target.location != game.agent.location
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -404,8 +401,7 @@ class FindCargo(TaxiTask):
     def is_available(Class, game):
         agent_loc = game.agent.location
         #check if it makes sense to find the cargo:
-        return game.agent.is_empty() \
-               and agent_loc != game.cargo.location \
+        return agent_loc != game.cargo.location
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -549,6 +545,8 @@ class AbstractTaskManager(object):
     def required_state_vars(self):
         raise NotImplementedError('This method is not implemented yet!')
 
+class TaskManagerError(Exception):
+    pass
 
 class TaskManager(AbstractTaskManager):
     """
@@ -602,23 +600,60 @@ class TaskManager(AbstractTaskManager):
         return all_required_vars
 
 
-class CargoAndPassengerTaskManager(TaskManager):
+class LifelongTaskManager(TaskManager):
+    """
+    Honestly, LifelongTaskManager is a fast workaround, for the task scheduling in our lifelong experiments.
+    LifelongTaskManager splits task in two lists: cargo-related tasks and passenger-releated tasks.
+    And tries to call tasks in one list sequentially. If this can't be done, it randomly selects the new list of tasks and
+    starts anew.
+    """
 
-    def _related_tasks(self, task_name1, task_name2):
-        """
-        Return True if two tasks are related(in a sense they both
-        deal with the same object). The task is not related to itself.
-        """
-        if task_name1 == task_name2:
-            return False
+    def __init__(self, tasks, *args, **kwargs):
+        super(LifelongTaskManager, self).__init__(tasks, *args, **kwargs)
+        self.task_seqs = self._generate_task_sequences(self._task_types)
+        self.current_seq = None
+        self.prev_task_id = None
 
-        if ('Cargo' in  task_name1) and ('Cargo' in task_name2):
-            return  True
+    def _generate_task_sequences(self, given_tasks):
+        given_tasks = set(given_tasks)
 
-        if ('Passenger' in task_name1) and ('Passenger' in task_name2):
-            return True
+        cargo_seq = [FindCargo, PickUpCargo, ConveyCargo]
+        passenger_seq = [FindPassenger, PickUpPassenger, ConveyPassenger]
 
-        return False
+        extra_tasks = given_tasks.difference(cargo_seq).difference(passenger_seq)
+        assert len(extra_tasks) == 0, "LifelongTaskManager is not suited for the tasks: {}".format(extra_tasks)
+
+        cargo_seq = [t for t in cargo_seq if t in given_tasks]
+        passenger_seq = [t for t in passenger_seq if t in given_tasks]
+        return dict(cargo_seq=cargo_seq, passenger_seq=passenger_seq)
+
+    def next(self, game, rnd_state):
+
+        if self.current_seq is not None:
+            tasks = self.task_seqs[self.current_seq]
+            for i in range(self.prev_task_id + 1, len(tasks)):
+                t = tasks[i]
+                if t.is_available(game):
+                    self.prev_task_id = i
+                    return t.create(game, **self.extra_task_kwargs)
+
+        for seq in rnd_state.permutation(sorted(self.task_seqs.keys())):
+            tasks = self.task_seqs[seq]
+            for i,t in enumerate(tasks):
+                if t.is_available(game):
+                    self.prev_task_id = i
+                    self.current_seq = seq
+                    return t.create(game, **self.extra_task_kwargs)
+        else:
+            task_names = {k:[el.__name__ for el in v] for k,v in self.task_seqs.items()}
+            msg = "Can't find the next available task({0}) at the state:" \
+                  " passenger_loc={1.location}, cargo_loc={2.location} agent_loc={3.location}," \
+                  " target_loc={4.location} obj_in_taxi = {5}".format(
+                task_names, game.passenger, game.cargo, game.agent, game.target,
+                type(game.agent.item).__name__ if game.agent.item else None
+            )
+            raise TaskManagerError(msg)
+
 
     def old_next(self, game, rnd_state):
 
@@ -643,7 +678,7 @@ class CargoAndPassengerTaskManager(TaskManager):
 
         return task
 
-    def next(self, game, rnd_state):
+    def old_next2(self, game, rnd_state):
         """
         Select next avaialble task while preventing
         tasks ReachPassenger and ReachCargo looping between each other
@@ -669,6 +704,7 @@ class CargoAndPassengerTaskManager(TaskManager):
         task = selected_task_type.create(game, **self.extra_task_kwargs)
 
         return task
+
 
 
 class TaskStats(object):
