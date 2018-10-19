@@ -259,7 +259,7 @@ class Taxi(games.WithWaterAndBlocksMixin):
             self._info['task_status']=self.current_task.update_status(self)
             if not self.current_task.running():
                 self._tasks_history.append(self.current_task.as_info_dict())
-                self._respawn_objects_if_needed(self.current_task)
+                self.soft_respawn(self.current_task)
                 self.current_task = self.task_manager.next(self, self.rnd)
 
         # task_id and task_status are intended to relate to each other
@@ -267,7 +267,7 @@ class Taxi(games.WithWaterAndBlocksMixin):
         self._info['task_id']=self.current_task.task_id
         self._info['agent_loc'] = self._featurize_coords(self.agent.location)
 
-    def _respawn_objects_if_needed(self, finished_task):
+    def soft_respawn(self, finished_task):
         """
         Override this function to respawn map objects after a task completion.
 
@@ -280,6 +280,18 @@ class Taxi(games.WithWaterAndBlocksMixin):
                 loc1, loc2 = self._get_placement_locs(self.agent, 2)
                 new_loc = loc1 if loc1 != self.target.location else loc2
                 self._move_item(self.passenger.id, new_loc)
+
+    def hard_respawn(self):
+        """
+        Forcefully respawn all movable objects on the map.
+        """
+        if not self.agent.is_empty():
+            self.agent.forced_dropoff()
+
+        map_objs = [self.agent, self.passenger]
+        locs = self._get_placement_locs(self.target, len(map_objs))
+        for loc, obj in zip(locs, map_objs):
+            self._move_item(self.agent.id, loc)
 
     def _finished(self):
         if self.single_task and len(self._tasks_history):
@@ -417,7 +429,7 @@ class FixedTaxi(Taxi):
         self._info = {}
         self._tasks_history = []
 
-    def _respawn_objects_if_needed(self, finished_task):
+    def soft_respawn(self, finished_task):
         """
         if passenger arrived to the destination and the current task is completed
         then respawns the passenger in a new location
@@ -429,7 +441,7 @@ class FixedTaxi(Taxi):
                     loc = self.initial_game_state['state_resume']['loc_passenger']
                     self._move_item(self.passenger.id, loc)
         else:
-            super(FixedTaxi, self)._respawn_objects_if_needed(finished_task)
+            super(FixedTaxi, self).soft_respawn(finished_task)
 
     def set_init_coordinate(self, obj_name, location):
         """

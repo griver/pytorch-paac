@@ -67,7 +67,7 @@ class TaxiPlus(Taxi):
         self._info = {}
         self._tasks_history = []
 
-    def _respawn_objects_if_needed(self, finished_task):
+    def soft_respawn(self, finished_task):
         """
         Respawn passenger and cargo if needed
         """
@@ -89,6 +89,18 @@ class TaxiPlus(Taxi):
                 locs = [l for l in locs if l != self.target.location]
                 for i, map_obj in enumerate(respawn_list):
                     self._move_item(map_obj.id, locs[i])
+
+    def hard_respawn(self):
+        """
+        Forcefully respawn all movable objects on the map.
+        """
+        if not self.agent.is_empty():
+            self.agent.forced_dropoff()
+
+        map_objs = [self.agent, self.cargo, self.passenger]
+        locs = self._get_placement_locs(self.target, len(map_objs))
+        for loc, obj in zip(locs, map_objs):
+            self._move_item(self.agent.id, loc)
 
     def _choose_target_location(self):
         """

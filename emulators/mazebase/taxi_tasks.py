@@ -201,7 +201,8 @@ class FindPassenger(TaxiTask):
     def is_available(Class, game):
         agent_loc = game.agent.location
         #check if it makes sense to find passenger:
-        return agent_loc != game.passenger.location
+        return agent_loc != game.passenger.location \
+               and game.agent.is_empty()
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -400,7 +401,8 @@ class FindCargo(TaxiTask):
     def is_available(Class, game):
         agent_loc = game.agent.location
         #check if it makes sense to find the cargo:
-        return agent_loc != game.cargo.location
+        return agent_loc != game.cargo.location\
+               and game.agent.is_empty()
 
     @classmethod
     def create(Class, game, **kwargs):
@@ -431,7 +433,6 @@ class FindCargo(TaxiTask):
 
     def min_steps_to_complete(self, game):
         return game.distance(game.agent.location, game.cargo.location)
-
 
 
 class PickUpCargo(TaxiTask):
@@ -649,19 +650,19 @@ class LifelongTaskManager(TaskManager):
         return task, next_group
 
     def next(self, game, rnd_state):
+        for _ in range(5):
+            if self.current_seq is not None:
+                task, next_seq = self.select_from_group(self.current_seq, game, rnd_state)
+                if task:
+                    self.current_seq = next_seq
+                    return task.create(game, **self.extra_task_kwargs)
 
-        if self.current_seq is not None:
-            task, next_seq = self.select_from_group(self.current_seq, game, rnd_state)
-            if task:
-                self.current_seq = next_seq
-                return task.create(game, **self.extra_task_kwargs)
-
-
-        for seq in rnd_state.permutation(sorted(self.task_seqs.keys())):
-            task, next_seq = self.select_from_group(seq, game, rnd_state)
-            if task:
-                self.current_seq = next_seq
-                return task.create(game, **self.extra_task_kwargs)
+            for seq in rnd_state.permutation(sorted(self.task_seqs.keys())):
+                task, next_seq = self.select_from_group(seq, game, rnd_state)
+                if task:
+                    self.current_seq = next_seq
+                    return task.create(game, **self.extra_task_kwargs)
+            game.hard_respawn()
         else:
             task_names = {k:[el.__name__ for el in v] for k,v in self.task_seqs.items()}
             msg = "Can't find the next available task({0}) at the state:" \
