@@ -157,6 +157,7 @@ class FactorizedSingleLSTMN(SingleLSTM):
         ##should call this after each weight change(i.e. either changed by optimizer or loaded from a file):
         self.lstm.generate_and_register_weights()
 
+
 class FactorizedTaskEnv(SingleLSTM):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault('hidden_size', 208)

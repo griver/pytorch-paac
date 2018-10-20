@@ -17,29 +17,40 @@ def get_arg_parser():
                         help="List of layers for retraining"
                              "( i.e: task_lstm.embedding fc_terminal fc_value),"
                              " the remaining layers will be frozen!")
+    parser.add_argument('--no_finetuning', action='store_false', dest='finetuning',
+                        help='If no_finetuning is specified then all unfrozen layers'
+                             ' will be reinitialized with random values!')
     #retrain_modules = kwargs.pop('retrain_modules', set('task_lstm.embedding', 'fc_terminal','fc_value')
     return parser
 
+def handle_command_line(parser, args_line=None):
+    args = mt_train.handle_command_line(parser, args_line)
 
-def split_network_parameters(net, retrain_layers):
+    if not hasattr(args, 'finetuning'):
+        args.finetuning = True
+
+    return args
+
+def split_network_parameters(net, retrain_layers, finetuning=True):
     """
     Return a 2-tuple containing a list of parameters
     for training and a list of parameters that will be frozen
     """
     # We assume that parameter names have the following format:
     #higher_module.lower_module.parameter_name
-    get_module_name = lambda p: name.rpartition('.')[0]
+    get_module_name = lambda name: name.rpartition('.')[0]
 
     train, freeze = [], []
 
     freeze_color = utils.cyan
-    retrain_color = utils.green
-    log_str = ['Model parameters({}, {}):'.format(freeze_color('freeze'), retrain_color('retrain')),]
+    train_color = utils.green if finetuning else utils.red
+    train_type = 'finetuning' if finetuning else 'train'
+    log_str = ['Model parameters({}, {}):'.format(freeze_color('freeze'), train_color(train_type)),]
 
     for name, param in net.named_parameters():
         if get_module_name(name) in retrain_layers:
             train.append((name, param))
-            log_str.append(retrain_color(name))
+            log_str.append(train_color(name))
         else:
             freeze.append((name, param))
             log_str.append(freeze_color(name))
@@ -62,10 +73,11 @@ def main(args):
     network = mt_train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
 
     training_steps_passed = MultiTaskActorCritic.update_from_checkpoint(
-        args.load_folder, network, use_cpu=args.device == 'cpu'
+        args.load_folder, network, use_cpu=args.device == 'cpu',
+        ignore_layers=tuple() if args.finetuning else args.train_layers
     )
 
-    train_params, freeze_params = split_network_parameters(network, args.train_layers)
+    train_params, freeze_params = split_network_parameters(network, args.train_layers, args.finetuning)
     opt = torch.optim.RMSprop([p for n, p in train_params], lr=args.initial_lr, eps=args.e)
     lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
 
@@ -103,7 +115,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = mt_train.handle_command_line(get_arg_parser())
+    args = handle_command_line(get_arg_parser())
     torch.set_num_threads(1)
     main(args)
 
