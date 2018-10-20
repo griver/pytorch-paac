@@ -613,28 +613,28 @@ class LifelongTaskManager(TaskManager):
 
     def __init__(self, tasks, *args, **kwargs):
         super(LifelongTaskManager, self).__init__(tasks, *args, **kwargs)
-        self.task_seqs = self._generate_task_sequences(self._task_types)
-        self.current_seq = None
+        self.task_groups = self._generate_task_groups(self._task_types)
+        self.current_group = None
         self.prev_task_id = None
 
-    def _generate_task_sequences(self, given_tasks):
+    def _generate_task_groups(self, given_tasks):
         given_tasks = set(given_tasks)
 
-        cargo_seq = [FindCargo, PickUpCargo, ConveyCargo]
-        passenger_seq = [FindPassenger, PickUpPassenger, ConveyPassenger]
+        cargo_group = [FindCargo, PickUpCargo, ConveyCargo]
+        passenger_group = [FindPassenger, PickUpPassenger, ConveyPassenger]
 
-        extra_tasks = given_tasks.difference(cargo_seq).difference(passenger_seq)
-        assert len(extra_tasks) == 0, "LifelongTaskManager is not suited for the tasks: {}".format(extra_tasks)
+        extra_tasks = given_tasks.difference(cargo_group).difference(passenger_group)
+        extra_group = [t for t in given_tasks if t in extra_tasks]  # yeah i just want extra tasks in the same order
+        # assert len(extra_tasks) == 0, "LifelongTaskManager is not suited for the tasks: {}".format(extra_tasks)
 
-        cargo_seq = [t for t in cargo_seq if t in given_tasks]
-        passenger_seq = [t for t in passenger_seq if t in given_tasks]
-        return dict(cargo_seq=cargo_seq, passenger_seq=passenger_seq)
-
+        cargo_group = [t for t in cargo_group if t in given_tasks]
+        passenger_group = [t for t in passenger_group if t in given_tasks]
+        return dict(cargo_group=cargo_group, passenger_group=passenger_group, extra_group=extra_group)
 
     def select_from_group(self, group_name, game, rnd_state):
         next_group = group_name
 
-        tasks = self.task_seqs[group_name]
+        tasks = self.task_groups[group_name]
         is_available = [t.is_available(game) for t in tasks]
         if any(is_available):
             indices = np.arange(len(tasks))
@@ -651,20 +651,20 @@ class LifelongTaskManager(TaskManager):
 
     def next(self, game, rnd_state):
         for _ in range(5):
-            if self.current_seq is not None:
-                task, next_seq = self.select_from_group(self.current_seq, game, rnd_state)
+            if self.current_group is not None:
+                task, next_group = self.select_from_group(self.current_group, game, rnd_state)
                 if task:
-                    self.current_seq = next_seq
+                    self.current_group = next_group
                     return task.create(game, **self.extra_task_kwargs)
 
-            for seq in rnd_state.permutation(sorted(self.task_seqs.keys())):
-                task, next_seq = self.select_from_group(seq, game, rnd_state)
+            for group in rnd_state.permutation(sorted(self.task_groups.keys())):
+                task, next_group = self.select_from_group(group, game, rnd_state)
                 if task:
-                    self.current_seq = next_seq
+                    self.current_group = next_group
                     return task.create(game, **self.extra_task_kwargs)
             game.hard_respawn()
         else:
-            task_names = {k:[el.__name__ for el in v] for k,v in self.task_seqs.items()}
+            task_names = {k:[el.__name__ for el in v] for k,v in self.task_groups.items()}
             msg = "Can't find the next available task({0}) at the state:" \
                   " passenger_loc={1.location}, cargo_loc={2.location} agent_loc={3.location}," \
                   " target_loc={4.location} obj_in_taxi = {5}".format(

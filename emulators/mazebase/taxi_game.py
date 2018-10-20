@@ -13,6 +13,11 @@ from collections import namedtuple
 from enum import Enum, IntEnum
 import numpy as np
 
+import os.path as path
+
+import glob
+import cv2
+
 Relation = Enum('Relation', ['INSIDE', 'NEAR', 'FAR'])
 TaxiResetConfig = namedtuple('TaxiResetConfig', ['passenger_taxi', 'passenger_destination', 'taxi_destination'])
 
@@ -41,8 +46,34 @@ class CompactStateResume(object):
         self.last_performed_act = last_performed_act
 
 
-class ImageViewMixin(games.BaseMazeGame):
-    def __init__(self, tile_size, tile_paths=None):
+class ImageViewer(games.BaseMazeGame):
+    def __init__(self, icon_folder):
+        icons = glob.glob(path.join(icon_folder, '*.jpg'))
+        icons.extend(glob.glob(path.join(icon_folder, '*.png')))
+        icons.sort()
+
+        icon_imgs = [cv2.imread(i) for i in icons]
+
+        print(len(icon_imgs))
+
+        size, _, _ = icon_imgs[0].shape
+
+        Y, X = 19, 19
+
+        height = size * Y
+        width = size * X
+        img = np.ones((height, width, 3), np.uint8) * 255
+
+        for i in range(Y):
+            for j in range(X):
+                idx = i * X + j
+                if idx < len(icon_imgs):
+                    img[i * size: (i + 1) * size, j * size: (j + 1) * size] = icon_imgs[idx].copy()
+
+        # cv2.imshow("test", img)
+        # cv2.waitKey(0)
+
+        cv2.imwrite("/tmp/icons_all.jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
         self.tile_size = tile_size
 
     def get_image(self):
