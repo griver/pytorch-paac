@@ -18,7 +18,7 @@ def preprocess_taxi_input(obs, infos, t_device):
 class SingleLSTM(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
                  num_tasks=12, task_embed_dim=128, preprocess=None,
-                 use_location=False, hidden_size=256):
+                 use_location=False, hidden_size=256, use_conv=True):
         super(SingleLSTM, self).__init__()
         self._num_actions = num_actions
         self._device = device
@@ -28,20 +28,31 @@ class SingleLSTM(nn.Module, BaseAgentNetwork):
         self._preprocess = preprocess if preprocess is not None else lambda *args: args
         self.use_location = use_location
         self._hidden_size = hidden_size
+        self._use_conv = use_conv
         self._create_network()
         self.apply(init_model_weights)
         assert self.training == True, "Model won't train If self.training is False"
 
-    def _create_network(self):
-        C,H,W = self._obs_shape
-        pad = 1 if H <= 5 else 0
+    def _create_observation_encoder(self):
+        C, H, W = self._obs_shape
+        if self._use_conv:
+            pad = 1 if H <= 5 else 0
+            self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
+            self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
+            C, H, W = calc_output_shape((C, H, W), [self.conv1, self.conv2])
+        return C*H*W
 
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
+    def _observation_encoder_forward(self, obs):
+        if self._use_conv:
+            obs = F.relu(self.conv1(obs))
+            obs = F.relu(self.conv2(obs))
+        return obs.view(obs.size()[0], -1)
+
+    def _create_network(self):
+        obs_size = self._create_observation_encoder()
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
-        C_out,H_out,W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
-        flatten_size = C_out * H_out * W_out + self._task_embed_dim
+        flatten_size = obs_size + self._task_embed_dim
         if self.use_location:
             flatten_size += 2
         self.lstm = nn.LSTMCell(flatten_size, self._hidden_size, bias=True)
@@ -52,10 +63,10 @@ class SingleLSTM(nn.Module, BaseAgentNetwork):
     def forward(self, obs, infos, masks, net_state):
         task_ids, coords = infos['task_id'], infos['agent_loc']
         obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
+
         #obs embeds:
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size()[0], -1)
+        x = self._observation_encoder_forward(obs)
+
         #task embeds:
         tasks = self.embed1(task_ids)
         if self.use_location:
@@ -104,15 +115,9 @@ class SingleLSTM(nn.Module, BaseAgentNetwork):
 
 class FactorizedSingleLSTMN(SingleLSTM):
     def _create_network(self):
+        obs_size = self._create_observation_encoder()
 
-        C,H,W = self._obs_shape
-        pad = 1 if H <= 5 else 0
-
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
-
-        C_out,H_out,W_out = calc_output_shape((C,H,W),[self.conv1, self.conv2])
-        flatten_size = C_out * H_out * W_out + (2 if self.use_location else 0)
+        flatten_size = obs_size + (2 if self.use_location else 0)
 
         self.lstm = FactorizedLSTMCell(
             flatten_size, self._hidden_size,
@@ -127,10 +132,9 @@ class FactorizedSingleLSTMN(SingleLSTM):
     def forward(self, obs, infos, masks, net_state):
         task_ids, coords = infos['task_id'], infos['agent_loc']
         obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
+
         #obs embeds:
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size()[0], -1)
+        x = self._observation_encoder_forward(obs)
 
         #task embeds:
         if self.use_location:
@@ -166,14 +170,9 @@ class FactorizedTaskEnv(SingleLSTM):
         super(FactorizedTaskEnv, self).__init__(*args, **kwargs)
 
     def _create_network(self):
-        C, H, W = self._obs_shape
-        pad = 1 if H <= 5 else 0
+        obs_size = self._create_observation_encoder()
 
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
-
-        C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
+        obs_flatten = obs_size + (2 if self.use_location else 0)
 
         self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
         self.task_lstm = FactorizedLSTMCell(
@@ -187,9 +186,10 @@ class FactorizedTaskEnv(SingleLSTM):
 
     def forward(self, obs, infos, masks, net_state):
         obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size(0), -1)
+
+        #obs embeds:
+        x = self._observation_encoder_forward(obs)
+
         if self.use_location:
             x = torch.cat([x, coords], dim=1)
 
@@ -237,15 +237,9 @@ class FactorizedTaskEnv(SingleLSTM):
 class FactorizedTaskEndHeavy(FactorizedTaskEnv):
 
     def _create_network(self):
-        C, H, W = self._obs_shape
-        pad = 1 if H <= 5 else 0
+        obs_size = self._create_observation_encoder()
 
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
-
-        C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
-
+        obs_flatten = obs_size + (2 if self.use_location else 0)
 
         self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
         self.task_lstm = FactorizedLSTMCell(
@@ -263,9 +257,9 @@ class FactorizedTaskEndHeavy(FactorizedTaskEnv):
 
     def forward(self, obs, infos, masks, net_state):
         obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size(0), -1)
+
+        #obs embeds:
+        x = self._observation_encoder_forward(obs)
         if self.use_location:
             x = torch.cat([x, coords], dim=1)
 
@@ -297,15 +291,11 @@ class FactorizedTaskEndHeavy(FactorizedTaskEnv):
 class TaskEnvSmall(SingleLSTM):
 
     def _create_network(self):
-        C, H, W = self._obs_shape
-        pad = 1 if H <= 5 else 0
+        obs_size = self._create_observation_encoder()
 
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
-        C_out, H_out, W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-        obs_flatten = C_out * H_out * W_out + (2 if self.use_location else 0)
+        obs_flatten = obs_size + (2 if self.use_location else 0)
 
         self.env_lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
         self.task_lstm = nn.LSTMCell(self._task_embed_dim+self._hidden_size, self._hidden_size, bias=True)
@@ -316,13 +306,13 @@ class TaskEnvSmall(SingleLSTM):
 
     def forward(self, obs, infos, masks, net_state):
         obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size(0), -1)
-        tasks = self.embed1(task_ids)
-
+        #obs embeds:
+        x = self._observation_encoder_forward(obs)
         if self.use_location:
             x = torch.cat([x, coords], dim=1)
+
+        #task embeds:
+        tasks = self.embed1(task_ids)
 
         t_masks = masks*task_masks # if self.erase_task_memory else masks
         env_h, env_c = net_state['env_h']*masks, net_state['env_c']*masks
@@ -367,15 +357,11 @@ class TaxiLSTMNet(SingleLSTM):
     RNN network for the full Taxi task
     """
     def _create_network(self):
-        C, H, W = self._obs_shape
-        pad = 1 if H <= 5 else 0
+        obs_size = self._create_observation_encoder()
+        obs_flatten = obs_size + (2 if self.use_location else 0)
 
-        self.conv1 = nn.Conv2d(C, 16, (3, 3), stride=1, padding=pad)
-        self.conv2 = nn.Conv2d(16, 32, (3, 3), stride=1, padding=pad)
         self.embed1 = nn.Embedding(self._num_tasks, self._task_embed_dim)
 
-        C_out,H_out,W_out = calc_output_shape((C, H, W), [self.conv1, self.conv2])
-        obs_flatten = C_out*H_out*W_out + (2 if self.use_location else 0)
         self.lstm = nn.LSTMCell(obs_flatten, self._hidden_size, bias=True)
         self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
         self.fc_value = nn.Linear(self._hidden_size, 1)
@@ -383,12 +369,11 @@ class TaxiLSTMNet(SingleLSTM):
 
     def forward(self, obs, infos, masks, net_state):
         obs, _, coords, _ = self._preprocess(obs, infos, self._device)
-        # obs embeds:
-        x = F.relu(self.conv1(obs))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size()[0], -1)
+        #obs embeds:
+        x = self._observation_encoder_forward(obs)
         if self.use_location:
             x = torch.cat([x, coords], dim=1)
+
         # lstm and last layers:
         hx, cx = net_state['hx'] * masks, net_state['cx'] * masks
         hx, cx = self.lstm(x, (hx, cx))

@@ -127,10 +127,12 @@ def main(args):
 def create_network(args, num_actions, obs_shape):
     NetworkCls = taxi_nets[args.arch]
     device = torch.device(args.device)
+    use_conv = getattr(args, 'use_conv', True)
     #network explicitly stores device in order to facilitate casting of incoming tensors
     network = NetworkCls(num_actions, obs_shape, device,
                          preprocess=preprocess_taxi_input,
                          use_location=args.use_location,
+                         use_conv=use_conv,
                          num_tasks=(6 if args.game != 'taxi_plus' else 12))
     network = network.to(device)
     return network
@@ -195,6 +197,8 @@ def get_arg_parser():
                         help="Grads will be clipped at the specified maximum (average) L2-norm"+show_default)
     parser.add_argument('-l', '--use_loc', action='store_true', dest='use_location',
                         help="If provided an agent will use it's coordinates as part of the observation")
+    parser.add_argument('--no_conv', action='store_false', dest='use_conv',
+                        help='Whether to use a convolutional module')
     #termination predictor args:
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
                         help='Weight of the termination model loss in the total loss'+show_default)
