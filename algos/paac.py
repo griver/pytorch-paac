@@ -5,7 +5,6 @@ import time
 import torch as th
 
 import numpy as np
-import torch.nn.functional as F
 from torch import optim, nn
 
 import utils
@@ -19,6 +18,7 @@ def n_step_returns(next_value, rewards, masks, gamma=0.99):
     The function doesn't detach tensors, so you have to take care of the gradient flow by yourself.
     :return:
     """
+
     rollout_steps = len(rewards)
     returns = [None] * rollout_steps
     R = next_value
@@ -26,6 +26,32 @@ def n_step_returns(next_value, rewards, masks, gamma=0.99):
         R = rewards[t] + gamma * masks[t] * R
         returns[t] = R
     return returns
+
+def gae_returns(next_value, values, rewards, masks, gamma=0.99, lam=0.95):
+    """
+    GAE(gamma, lam) = SUM_{t in range(0,rollout_steps)} (gamma*lam)^t delta_t,
+    where delta_t = r_t + gamma * value_{t+1} - value[t]
+
+    returns = GAE(gamma, lam) + values
+
+    The returned values is used as targets values for the critic loss
+    and for computation of advantage estimates for the actor loss.
+
+    The function doesn't detach tensors, so you have to take care of the gradient flow by yourself.
+    """
+    rollout_steps = len(rewards)
+    values = values + [next_value]
+    returns = [None] * rollout_steps
+    gae = 0.
+    for t in reversed(range(rollout_steps)):
+        delta_t =rewards[t] + gamma*masks[t]*values[t+1] - values[t]
+        gae = delta_t + gamma*lam*masks[t]*gae
+        returns[t] = gae + values[t]
+
+    return returns
+
+
+
 
 
 class ParallelActorCritic(object):
@@ -61,6 +87,13 @@ class ParallelActorCritic(object):
             self.masks = masks
             self.next_v = next_v
 
+        def compute_returns(self, gamma=0.99, use_gae=False, lam=0.95):
+            with th.no_grad():
+                if use_gae:
+                    return gae_returns(self.next_v, self.values, self.rewards, self.masks, gamma, lam)
+                else:
+                    return n_step_returns(self.next_v, self.rewards, self.masks, gamma)
+
     def __init__(self,
                  network,
                  optimizer,
@@ -73,9 +106,9 @@ class ParallelActorCritic(object):
                  gamma=0.99,
                  critic_coef=0.5,
                  entropy_coef=0.01,
-                 clip_norm_type='global',
                  clip_norm=0.5,
-                 loss_scaling=1.):
+                 use_gae=False,
+                 ):
 
         logging.debug('PAAC init is started')
         self.checkpoint_dir = join_path(save_folder, self.CHECKPOINT_SUBDIR)
@@ -95,23 +128,17 @@ class ParallelActorCritic(object):
 
         self.gamma = gamma # future rewards discount factor
         self.entropy_coef = entropy_coef
-        self.loss_scaling = loss_scaling #1.
         self.critic_coef =  critic_coef #0.5
         self.total_steps = max_global_steps
         self.rollout_steps = rollout_steps
         self.clip_norm = clip_norm
-
+        self.use_gae = use_gae
         self.evaluate = None
         self.reshape_r = lambda r: np.clip(r, -1.,1.)
-        self.compute_returns = n_step_returns
-        if clip_norm_type == 'global':
-            self.clip_gradients = nn.utils.clip_grad_norm_
-        elif clip_norm_type == 'local':
-            self.clip_gradients = utils.clip_local_grad_norm
-        elif clip_norm_type == 'ignore':
-            self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
-        else:
-            raise ValueError('Norm type({}) is not recoginized'.format(clip_norm_type))
+
+        self.clip_gradients = nn.utils.clip_grad_norm_
+        #self.clip_gradients = utils.clip_local_grad_norm
+        #self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
 
         self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
         self.episodes_rewards = np.zeros(batch_env.num_emulators)
@@ -236,7 +263,7 @@ class ParallelActorCritic(object):
 
     def update_weights(self, rollout_data):
         #next_v, rewards, masks, values, log_probs, entropies
-        returns = self.compute_returns(rollout_data.next_v, rollout_data.rewards, rollout_data.masks, self.gamma)
+        returns = rollout_data.compute_returns(self.gamma, use_gae=self.use_gae)
 
         loss, update_info = self.compute_loss(
             th.cat(returns), th.cat(rollout_data.values),
@@ -259,7 +286,7 @@ class ParallelActorCritic(object):
         actor_loss = th.neg(log_probs * advantages.detach()).mean() # minimize -log(policy(a))*advantage(s,a)
         entropy_loss = self.entropy_coef*entropies.mean() # maximize entropy
 
-        loss = self.loss_scaling * (actor_loss + critic_loss - entropy_loss)
+        loss = actor_loss + critic_loss - entropy_loss
 
         loss_data = {'actor':actor_loss.item(), 'critic':critic_loss.item(), 'entropy':entropy_loss.item()}
         return loss, loss_data

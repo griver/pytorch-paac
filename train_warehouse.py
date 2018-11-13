@@ -9,7 +9,7 @@ import utils
 from utils import eval_warehouse as evaluate
 from networks import warehouse_nets
 from collections import namedtuple
-from multi_task import MultiTaskActorCritic
+from algos_multi_task import MultiTaskActorCritic
 from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
 import multiprocessing
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
@@ -127,13 +127,8 @@ def add_multi_task_learner_args(parser):
                         help="Strength of the entropy regularization term (needed for actor-critic). "+show_default,
                         dest="entropy_coef")
     parser.add_argument('--clip_norm', default=3.0, type=float,
-                        help="If clip_norm_type is local/global, grads will be"+
-                             "clipped at the specified maximum (average) L2-norm. "+show_default,
-                        dest="clip_norm")
-    parser.add_argument('--clip_norm_type', default="global",
-                        help="""Whether to clip grads by their norm or not. Values: ignore (no clipping),
-                         local (layer-wise norm), global (global norm)"""+show_default,
-                        dest="clip_norm_type")
+                        help="Grads will be clipped at the specified maximum (average) "
+                             "L2-norm. "+show_default, dest="clip_norm")
     parser.add_argument('--gamma', default=0.99, type=float, help="Discount factor."+show_default, dest="gamma")
     parser.add_argument('--max_global_steps', default=80000000, type=int,
                         help="Number of training steps."+show_default,
@@ -148,8 +143,6 @@ def add_multi_task_learner_args(parser):
                         dest="num_workers")
     parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
                         help="Folder where to save training progress.", dest="debugging_folder")
-    parser.add_argument('--loss_scale', default=5., dest='loss_scaling', type=float,
-                        help='Scales loss according to a given value'+show_default )
     parser.add_argument('--critic_coef', default=0.25, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,

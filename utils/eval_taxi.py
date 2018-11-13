@@ -4,10 +4,12 @@ from torch.nn import functional as F
 import torch as th
 from torch.distributions import Categorical
 import logging, copy
-from .utils import BinaryClassificationStats
+from .utils import BinaryClassificationStats, cyan, red
 from .evaluate import model_evaluation
 from emulators.mazebase.taxi_tasks import TaskStats
 import time
+from tqdm import tqdm
+from collections import defaultdict, Counter
 
 def set_user_defined_episodes(env):
     """
@@ -38,15 +40,9 @@ def set_user_defined_episodes(env):
 
 
 @model_evaluation
-def save_coordinates_eval(network, env_creator, num_episodes=1, greedy=False,
-                termination_threshold=0.5):
-    """
-    Plays for num_episodes episodes on a single environment.
-    Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
-    Returns:
-         A list that stores total reward from each episode
-         A list that stores length of each episode
-    """
+def location_frequency_eval(network, env_creator, num_episodes=1, greedy=False,
+                            termination_threshold=0.5):
+    import cv2
     assert network.training == False, 'You should set the network to eval mode before testing!'
 
     episode_rewards = []
@@ -68,21 +64,25 @@ def save_coordinates_eval(network, env_creator, num_episodes=1, greedy=False,
             outputs[-1] = {k:np.asarray(v)[np.newaxis] for k, v in info.items()}
         return outputs
 
-    for episode in range(num_episodes):
-        print('=============== Episode #{} ================='.format(episode))
-        env = env_creator.create_environment(np.random.randint(1000))
-        try:
-            display = env.game.display
-            task = lambda: env.game.task()
+    #task2visited[task_name] returns a dict that maps task_order_in_episode to list_of_visited_locations
+    task2visited = defaultdict( lambda: defaultdict(list) )
 
+    env = env_creator.create_environment(np.random.randint(1000))
+
+    display = env.game.display
+    task = lambda:env.game.task()
+    task_id = lambda:type(task()).__name__
+    agent_loc = lambda:env.game.agent.location
+
+    for episode in tqdm(range(num_episodes)):
+        env.reset()
+        try:
             mask = th.zeros(1).to(device)
             rnn_state = network.init_rnn_state(1)
             state, info = unsqueeze(env.reset())
             total_r = 0
-
-            print('map_size:', (env.game.height, env.game.width))
-            display()
-            print('current task:', task())
+            #display()
+            task2order = defaultdict(lambda:0)
 
             for t in itertools.count():
 
@@ -90,26 +90,153 @@ def save_coordinates_eval(network, env_creator, num_episodes=1, greedy=False,
                 act, done_pred, rnn_state, model_info = outputs
                 act = act.item()
 
-                print('#{0} v_t={1:.3f} a_t={2}'.format(t, model_info['values'].item(),
-                                                           env.legal_actions[act]), end=' ')
-                print('P_t(done)={0:.3f}'.format(model_info['done_probs'][0,1].item()))
-                input('Press any button to continue..\n')
+                #input('Press any button to continue..\n')
+                t_id = task_id()
+                t_order = task2order[t_id]
+                task2visited[t_id][t_order].append(agent_loc())
 
                 state, reward, is_done, info = unsqueeze(env.next(act))
                 mask[0] = 1.-is_done
                 total_r += reward
-                print('R_t: {:.2f} total_r: {:.2f}'.format(reward, total_r))
-                print('-------------Step #{}----------------'.format(t))
-                display()
-                print('current task:', task())
+                #display()
+
                 if is_done: break
+
+                if info['task_status'][0]:
+                    task2order[t_id] += 1
 
             episode_rewards.append(total_r)
             episode_steps.append(t + 1)
         finally:
             env.close()
 
-    return episode_steps, episode_rewards, None
+    env.reset()
+    #process lists of visited locations to get relative locations frequencies for each task and order value.
+    for t_id in list(task2visited.keys()):
+        for ord_id in list(task2visited[t_id].keys()):
+            print('{}#{}'.format(t_id, ord_id))
+            loc_counts = Counter(task2visited[t_id][ord_id])
+            max_count = max(loc_counts.values())
+            task2visited[t_id][ord_id] = {loc:(count/max_count) for loc, count in loc_counts.items()}
+
+
+    while True:
+        t_id, ord1, ord2 = input("Please select the task and the orders to compare:").split()
+        ord1, ord2 = int(ord1), int(ord2)
+        freqs1 = task2visited[t_id][ord1]
+        freqs2 = task2visited[t_id][ord2]
+
+        #loc_counts1 = Counter(task2visited[t_id][ord1])
+        #loc_counts2 = Counter(task2visited[t_id][ord2])
+        #max_count = max(itertools.chain(loc_counts1.values(), loc_counts2.values()))
+        #freqs1 = {loc:(count / max_count) for loc, count in loc_counts1.items()}
+        #freqs2 = {loc:(count / max_count) for loc, count in loc_counts2.items()}
+
+        if not (freqs1 and freqs2):
+            print('There is no data for task={} and orders: {}, {}'.format(t_id, ord1, ord2))
+        img1 = env.map_viewer.show_frequency(freqs1,'{}#{}'.format(t_id, ord1))
+        img2 = env.map_viewer.show_frequency(freqs2, '{}#{}'.format(t_id, ord2))
+        key = env.from_keyboard(allowed_keys=['s','c'])
+        if key == 's':
+            template = './pretrained/gif/LocationFrequency-15x15-sem-a2c-{}#{}.png'
+            cv2.imwrite(template.format(t_id, ord1), img1)
+            cv2.imwrite(template.format(t_id, ord2), img2)
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+
+    return episode_steps, episode_rewards, task2visited
+
+
+
+@model_evaluation
+def count_tasks_lengths(network, env_creator, num_episodes=1, greedy=False,
+                termination_threshold=0.5):
+        """
+        Plays for num_episodes episodes on a single environment.
+        Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
+        Returns:
+             A list that stores total reward from each episode
+             A list that stores length of each episode
+        """
+        assert network.training == False, 'You should set the network to eval mode before testing!'
+
+        episode_rewards = []
+        episode_steps = []
+        logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
+        device = network._device
+
+        extra_inputs = {
+            'greedy':greedy,
+            'termination_threshold':termination_threshold
+        }
+
+        def unsqueeze(emulator_outputs):
+            outputs = list(emulator_outputs)
+            state, info = outputs[0], outputs[-1]
+            if state is not None:
+                outputs[0] = state[np.newaxis]
+            if info is not None:
+                outputs[-1] = {k:np.asarray(v)[np.newaxis] for k, v in info.items()}
+            return outputs
+
+        task2steps = {
+            # task_name: l, where l is a list of len(num_task_executions)
+            #
+        }
+
+        env = env_creator.create_environment(np.random.randint(1000))
+        for i, config in enumerate(env.game.reset_configs):
+            print('#{}: {}'.format(i, config))
+        init_id = int(input('Please, input the number of the desired config:'))
+        env.game.reset_configs = [env.game.reset_configs[init_id], ]
+
+        for episode in tqdm(range(num_episodes)):
+
+            try:
+                mask = th.zeros(1).to(device)
+                rnn_state = network.init_rnn_state(1)
+                state, info = unsqueeze(env.reset())
+                total_r = 0
+
+                for t in itertools.count():
+
+                    outputs = choose_action(network, state, info, mask, rnn_state, **extra_inputs)
+                    act, done_pred, rnn_state, model_info = outputs
+                    act = act.item()
+
+                    state, reward, is_done, info = unsqueeze(env.next(act))
+                    mask[0] = 1. - is_done
+                    total_r += reward
+
+                    if is_done: break
+
+                episode_rewards.append(total_r)
+                episode_steps.append(t + 1)
+
+                task2order = {}
+                for task_info in env.game._tasks_history:
+                    t_name = task_info['name']
+                    num_steps = task_info['num_steps']
+                    #if task_info['status']
+                    t_order = task2order.get(t_name, 0)
+
+                    order2steps = task2steps.setdefault(t_name,{})
+                    order2steps.setdefault(t_order,[]).append(num_steps)
+
+                    task2order[t_name] = t_order + 1
+            finally:
+                env.close()
+
+        for task in sorted(task2steps.keys()):
+            order2steps = task2steps[task]
+            print('Task: ', task)
+            for order in sorted(order2steps.keys()):
+                if order > 10:
+                    break
+                mean_steps = np.mean(order2steps[order])
+                print('   #{}: {} mean steps'.format(order, mean_steps))
+
+        return episode_steps, episode_rewards, None
 
 
 @model_evaluation
@@ -185,6 +312,7 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
             env.close()
 
     return episode_steps, episode_rewards, None
+
 
 @model_evaluation
 def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termination_threshold=0.5):

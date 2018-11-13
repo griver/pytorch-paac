@@ -13,99 +13,10 @@ from collections import namedtuple
 from enum import Enum, IntEnum
 import numpy as np
 
-import os.path as path
-
-import glob
-import cv2
 
 Relation = Enum('Relation', ['INSIDE', 'NEAR', 'FAR'])
 TaxiResetConfig = namedtuple('TaxiResetConfig', ['passenger_taxi', 'passenger_destination', 'taxi_destination'])
 
-
-class CompactStateResume(object):
-    __slots__ = [
-        'loc_passenger',
-        'loc_taxi',
-        'loc_destination',
-        'passenger_in_taxi',
-        'last_performed_act'
-    ]
-
-    def __init__(self,
-                 loc_passenger,
-                 loc_taxi,
-                 loc_destination,
-                 passenger_in_taxi,
-                 last_performed_act) -> None:
-
-        super(CompactStateResume, self).__init__()
-        self.loc_passenger = loc_passenger
-        self.loc_taxi = loc_taxi
-        self.loc_destination = loc_destination
-        self.passenger_in_taxi = passenger_in_taxi
-        self.last_performed_act = last_performed_act
-
-
-class ImageViewer(games.BaseMazeGame):
-    def __init__(self, icon_folder):
-        icons = glob.glob(path.join(icon_folder, '*.jpg'))
-        icons.extend(glob.glob(path.join(icon_folder, '*.png')))
-        icons.sort()
-
-        icon_imgs = [cv2.imread(i) for i in icons]
-
-        print(len(icon_imgs))
-
-        size, _, _ = icon_imgs[0].shape
-
-        Y, X = 19, 19
-
-        height = size * Y
-        width = size * X
-        img = np.ones((height, width, 3), np.uint8) * 255
-
-        for i in range(Y):
-            for j in range(X):
-                idx = i * X + j
-                if idx < len(icon_imgs):
-                    img[i * size: (i + 1) * size, j * size: (j + 1) * size] = icon_imgs[idx].copy()
-
-        # cv2.imshow("test", img)
-        # cv2.waitKey(0)
-
-        cv2.imwrite("/tmp/icons_all.jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
-        self.tile_size = tile_size
-
-    def get_image(self):
-        img_width = self.width*self.tile_size
-        img_height = self.height*self.tile_size
-
-        ''' Displays the game map for visualization '''
-        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
-        for y in reversed(range(self.height)):
-            cprint('   ', None, 'on_white', end="")
-            for x in range(self.width):
-                itemlst = sorted(filter(lambda x:x.visible, self._map[x][y]),
-                                 key=lambda x:x.PRIO)
-                disp = [u'   ', None, None, None]
-                for item in itemlst:
-                    config = item._get_display_symbol()
-                    for i, v in list(enumerate(config))[1:]:
-                        if v is not None:
-                            disp[i] = v
-                    s = config[0]
-                    if s is None:
-                        continue
-                    d = list(disp[0])
-                    for i, char in enumerate(s):
-                        if char != ' ':
-                            d[i] = char
-                    disp[0] = "".join(d)
-                text, color, bg, attrs = disp
-                cprint(text, color, bg, attrs, end="")
-            cprint('   ', None, 'on_white')
-        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
-        pass
 
 
 class Taxi(games.WithWaterAndBlocksMixin):
@@ -158,7 +69,7 @@ class Taxi(games.WithWaterAndBlocksMixin):
         #          tasks if tasks else ['pickup','find_p','convey_p'])
 
         self.task_manager = self.TaskManager(
-            tasks if tasks else ['pickup','find_p','reach_d', 'dropoff'],
+            tasks if tasks else ['pickup','find_p','convey_p'],
             extra_task_kwargs={"finish_action":finish_action}
         )
         self.single_task = single_task_episodes #episode equals one task
@@ -172,6 +83,8 @@ class Taxi(games.WithWaterAndBlocksMixin):
             kwargs['map_size'] = list(kwargs['map_size'])*2
         self.future_map_size = kwargs['map_size'] # map_size we'll use in the next episode
         #BaseMaseGame.__init__ calls self.reset(), so we need to create all feilds before the call
+        kwargs['waterpct'] = 0.1
+        kwargs['blockpct'] = 0.25
         super(Taxi, self).__init__(**kwargs)
         # Here we directly modify BaseMazeGame.__all_possible_features property:
         features = super(Taxi, self).all_possible_features()
@@ -401,6 +314,37 @@ class FixedTaxi(Taxi):
         else:
             super(FixedTaxi, self)._reset()
             self.initial_game_state = self.collect_state_info()
+            if not self._preliminary_env:
+                self.display()
+
+    def _choose_reset_config(self, params=None):
+        if self._preliminary_env:
+            return super(FixedTaxi, self)._choose_reset_config()
+
+        print('Current map:')
+        self.display()
+        print('posible configs:')
+        for i, config in enumerate(self.reset_configs):
+            print('#{}: {}'.format(i, config))
+        init_id = int(input('Please, input the number of the desired config:'))
+        chosen_config = self.reset_configs[init_id]
+
+        def confirm(question):
+            while True:
+                answer = input(question + '[y/n]')
+                if answer in ('y', 'n'):
+                    return answer == 'y'
+                else:
+                    print('Input y or n!')
+
+        self.repeat_episode = confirm(
+            'Do you want to use this map and configuration in every episode?'
+        )
+        self.fixed_passenger = confirm(
+            'Do you want to spawn passenger'
+            ' in the same location every time?'
+        )
+        return chosen_config
 
     def collect_state_info(self):
         state = {}
@@ -445,12 +389,25 @@ class FixedTaxi(Taxi):
             self._add_item(maze_items.Water(location=loc))
 
         state_resume = state_info['state_resume']
-        self.agent = self.agent_cls(location=state_resume['loc_taxi'])
-        self._add_agent(self.agent, "TaxiAgent")
         self.target = maze_items.Goal(location=state_resume['loc_destination'])
         self._add_item(self.target)
+
+        if not self.fixed_passenger:
+            old_taxi_loc = state_resume['loc_taxi']
+            old_pass_loc = state_resume['loc_passenger']
+
+            loc1, loc2 = self._get_placement_locs(self.target, 2)
+            if old_taxi_loc == old_pass_loc:
+                #if agent and taxi should be in the same location in the beggining of a new episode
+                state_resume['loc_taxi'] = state_resume['loc_passenger'] = loc1
+            else: #otherwise taxi stays in the old location:
+                state_resume['loc_passenger'] = loc1 if loc1 != old_taxi_loc else loc2
+
+        self.agent = self.agent_cls(location=state_resume['loc_taxi'])
+        self._add_agent(self.agent, "TaxiAgent")
         self.passenger = Passenger(location=state_resume['loc_passenger'])
         self._add_item(self.passenger)
+
         if state_resume['passenger_in_taxi']:
             self.agent.actions['pickup']()
             assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for state={}".format(state_resume)
@@ -498,31 +455,37 @@ class FixedTaxi(Taxi):
         else:
             raise ValueError('You can change location of {}'.format(obj_name))
 
-    def _choose_reset_config(self, params=None):
-        if self._preliminary_env:
-            return super(FixedTaxi, self)._choose_reset_config()
+    def display_path(self, path):
+        ''' Displays the game map for visualization '''
+        visited_states = set(path)
+        from mazebase.termcolor import cprint
+        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
+        for y in reversed(range(self.height)):
+            cprint('   ', None, 'on_white', end="")
+            for x in range(self.width):
+                itemlst = sorted(filter(lambda x:x.visible, self._map[x][y]),
+                                 key=lambda x:x.PRIO)
+                disp = [u'   ', None, None, None]
+                for item in itemlst:
+                    config = item._get_display_symbol()
+                    for i, v in list(enumerate(config))[1:]:
+                        if v is not None:
+                            disp[i] = v
+                    s = config[0]
+                    if s is None:
+                        continue
+                    d = list(disp[0])
+                    for i, char in enumerate(s):
+                        if char != ' ':
+                            d[i] = char
+                    disp[0] = "".join(d)
 
-        print('Current map:')
-        self.display()
-        print('posible configs:')
-        for i, config in enumerate(self.reset_configs):
-            print('#{}: {}'.format(i,config))
-        init_id = int(input('Please, input the number of the desired config:'))
-        chosen_config = self.reset_configs[init_id]
+                text, color, bg, attrs = disp
+                if (x,y) in visited_states:
+                    has_water = any(isinstance(z,maze_items.Water) for z in itemlst)
+                    bg= 'on_green' if has_water else 'on_yellow'
 
-        def confirm(question):
-            while True:
-                answer = input(question + '[y/n]')
-                if answer in ('y', 'n'):
-                    return answer=='y'
-                else:
-                    print('Input y or n!')
-
-        self.repeat_episode = confirm(
-            'Do you want to use this map and configuration in every episode?'
-        )
-        self.fixed_passenger = confirm(
-            'Do you want to spawn passenger'
-            ' in the same location every time?'
-        )
-        return chosen_config
+                cprint(text, color, bg, attrs, end="")
+            cprint('   ', None, 'on_white')
+        cprint(' ' * (self.width + 2) * 3, None, 'on_white')
+        pass

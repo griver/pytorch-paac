@@ -67,7 +67,8 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
 
 
 @model_evaluation
-def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, delay=0.05):
+def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, delay=0.05,
+                **env_kwargs):
     """
     Plays for num_episodes episodes on a single environment.
     Renders the process. Whether it be a separate window or string representation in the console depends on the emulator.
@@ -90,7 +91,7 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
         return outputs
 
     for episode in range(num_episodes):
-        emulator = env_creator.create_environment(np.random.randint(100,1000)+episode)
+        emulator = env_creator.create_environment(np.random.randint(100,1000)+episode, **env_kwargs)
         try:
             mask = torch.zeros(1).to(device)
             rnn_state = network.init_rnn_state(1)

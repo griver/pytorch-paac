@@ -91,4 +91,4 @@ class TaxiGamesCreator(MazebaseGamesCreator):
                                help='Maximum number of steps in each episode')
         argparser.add_argument('-t', '--tasks', nargs='*', type=str, default=['pickup','find_p','convey_p'],
                                dest='tasks', choices=available_tasks, help='Which tasks to learn')
-
+        argparser.set_defaults(icon_folder='./resources/mazebase_images')

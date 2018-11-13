@@ -59,6 +59,10 @@ def get_argparser(eval_modes, default_mode, devices, available_games):
                         help='if test_game is not given, then the game from the training config is used')
     parser.add_argument('--single_task_episodes', action='store_true',
                            help="if provided each episode equals one subtask")
+    parser.add_argument('--max_episode_steps', type=int, default=None,
+                           help='Maximum number of steps in each episode')
+
+    parser.set_defaults(icon_folder='./resources/mazebase_images')
     return parser
 
 
@@ -102,7 +106,7 @@ if __name__=='__main__':
     #evaluate = eval_mode[args.mode]
 
     if args.visualize:
-        num_steps, rewards, extra_stats = eval.visual_eval(
+        num_steps, rewards, extra_stats = eval.location_frequency_eval( #eval.count_tasks_lengths(  #eval.visual_eval(
             network, env_creator,
             args.test_count, args.greedy,
             args.termination_threshold

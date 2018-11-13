@@ -9,7 +9,7 @@ from emulators import TaxiGamesCreator
 import utils
 import utils.eval_taxi as evaluate
 from utils.lr_scheduler import LinearAnnealingLR
-from multi_task import MultiTaskActorCritic
+from algos_multi_task import MultiTaskActorCritic
 from networks import taxi_nets, preprocess_taxi_input
 
 from train import args_to_str, concurrent_emulator_handler, set_exit_handler
@@ -112,9 +112,7 @@ def main(args):
             gamma=args.gamma,
             critic_coef=args.critic_coef,
             entropy_coef=args.entropy_coef,
-            clip_norm_type=args.clip_norm_type,
             clip_norm=args.clip_norm,
-            loss_scaling=args.loss_scaling,
             term_weights=args.term_weights,
             termination_model_coef=args.termination_model_coef
         )
@@ -146,8 +144,6 @@ def handle_command_line(parser, args_line=None):
 
     if not hasattr(args, 'random_seed'):
         args.random_seed = 3
-
-    args.clip_norm_type = 'global'
 
     #we definitely don't want learning rate to become zero before the training ends:
     if args.lr_annealing_steps < args.max_global_steps:
@@ -187,8 +183,6 @@ def get_arg_parser():
                         help="Initial value for the learning rate."+show_default)
     parser.add_argument('-lra', '--lr_annealing_steps', default=80000000, type=int, dest="lr_annealing_steps",
                         help="Number of global steps during which the learning rate will be linearly annealed towards zero"+show_default)
-    parser.add_argument('--loss_scale', default=1., dest='loss_scaling', type=float,
-                        help='Scales loss according to a given value'+show_default)
     parser.add_argument('--critic_coef', default=0.5, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
     parser.add_argument('--entropy', default=0.01, type=float, dest="entropy_coef",

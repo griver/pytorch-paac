@@ -194,6 +194,7 @@ class FactorizedTaskEnv(SingleLSTM):
             x = torch.cat([x, coords], dim=1)
 
         t_masks = masks*task_masks # if self.erase_task_memory else masks
+        #masks = t_masks #for the tests
         env_h, env_c = net_state['env_h']*masks, net_state['env_c']*masks
         task_h, task_c = net_state['task_h']*t_masks, net_state['task_c']*t_masks
 

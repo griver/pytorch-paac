@@ -6,7 +6,7 @@ import torch
 
 from networks import old_preprocess_images
 import utils
-from paac import ParallelActorCritic
+from algos import ParallelActorCritic
 from train import get_environment_creator, create_network, eval_network, evaluate, args_to_str
 
 

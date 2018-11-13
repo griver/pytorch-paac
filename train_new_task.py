@@ -3,7 +3,7 @@ import logging
 import utils
 from emulators import TaxiGamesCreator
 import torch
-from multi_task import MultiTaskActorCritic
+from algos_multi_task import MultiTaskActorCritic
 from utils.lr_scheduler import LinearAnnealingLR
 from batch_play import ConcurrentBatchEmulator, WorkerProcess
 
@@ -11,7 +11,7 @@ from batch_play import ConcurrentBatchEmulator, WorkerProcess
 def get_arg_parser():
 
     parser = mt_train.get_arg_parser()
-    parser.add_argument('-lf', '--load_folder', default='pretrained/multi_task/mt_factor_5to10_ttm/',
+    parser.add_argument('-lf', '--load_folder', default='pretrained/algos_multi_task/mt_factor_5to10_ttm/',
                         type=str, help='path to a pretrained model')
     parser.add_argument('-tl','--train_layers', nargs='+', type=str,required=True,
                         help="List of layers for retraining"
@@ -100,9 +100,7 @@ def main(args):
             gamma=args.gamma,
             critic_coef=args.critic_coef,
             entropy_coef=args.entropy_coef,
-            clip_norm_type=args.clip_norm_type,
             clip_norm=args.clip_norm,
-            loss_scaling=args.loss_scaling,
             term_weights=args.term_weights,
             termination_model_coef=args.termination_model_coef
         )
