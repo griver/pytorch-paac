@@ -1,4 +1,4 @@
-from .paac import ParallelActorCritic, th, np, n_step_returns, gae_returns
+from .paac import ParallelActorCritic, th, np, n_step_returns, gae_returns, normalize
 import torch.nn.functional as F
 import copy
 
@@ -150,10 +150,10 @@ class ProximalPolicyOptimization(ParallelActorCritic):
         returns = th.stack(returns, 0) #shape: [rollout_steps, num_envs]
         values =  th.stack(rollout_data.values, 0)
 
-        advantages = returns - values
-        advantages = (advantages-advantages.mean()) / (advantages.std()+1e-6)
+        advantages = normalize(returns - values) #mean=0, std=1.
 
         sum_grad_norm = sum_actor_loss = sum_critic_loss = sum_entropy_loss = 0.
+
         num_updates = 0
         for epoch in range(self.ppo_epochs):
             for batch in self._batches_from_rollout(advantages, returns, rollout_data):
@@ -163,24 +163,19 @@ class ProximalPolicyOptimization(ParallelActorCritic):
                 actions_batch, old_log_probs_batch, \
                 returns_batch, adv_batch = batch
 
-                values, log_probs, entropies = self._process_batch(
+                values, log_probs, entropies = self.process_batch(
                     states_batch, infos_batch, masks_batch,
                     init_rnn_states_batch, actions_batch
                 )
 
-                ratio = th.exp(log_probs - old_log_probs_batch)
-                surr1 = ratio * adv_batch
-                surr2 = th.clamp(ratio, 1.-self.ppo_clip, 1.+self.ppo_clip) * adv_batch
-                actor_loss = -th.min(surr1, surr2).mean() #maximize actor loss
-                #minimize prediction error for critic:
-                #critic_loss = self.critic_coef * (values - returns_batch).pow(2).mean()
-                #critic_loss = F.mse_loss(values, returns_batch) * self.critic_coef
-                critic_loss = 2.*self.critic_coef * F.smooth_l1_loss(values, returns_batch)
-
-                #maximize(that's were minus comes from) entropy:
-                entropy_loss = - self.entropy_coef * entropies.mean()
-
-                loss = critic_loss + actor_loss + entropy_loss
+                loss, loss_info = self.compute_loss(
+                    log_probs=log_probs,
+                    old_log_probs=old_log_probs_batch,
+                    advantages=adv_batch,
+                    values=values,
+                    returns=returns_batch,
+                    entropies=entropies
+                )
 
                 #update_weights:
                 self.optimizer.zero_grad()
@@ -188,9 +183,9 @@ class ProximalPolicyOptimization(ParallelActorCritic):
                 grad_norm = self.clip_gradients(self.network.parameters(), self.clip_norm)
                 self.optimizer.step()
 
-                sum_actor_loss += actor_loss.item()
-                sum_critic_loss += critic_loss.item()
-                sum_entropy_loss += entropy_loss.item()
+                sum_actor_loss += loss_info['actor_loss']
+                sum_critic_loss += loss_info['critic_loss']
+                sum_entropy_loss += loss_info['entropy_loss']
                 sum_grad_norm += grad_norm #
 
         return {
@@ -228,7 +223,23 @@ class ProximalPolicyOptimization(ParallelActorCritic):
         else:
             raise NotImplementedError()
 
-    def _process_batch(self, states, infos, masks, rnn_states, actions):
+    def process_batch(self, states, infos, masks, rnn_states, actions):
+        if rnn_states:  #recurrent model
+            outputs = []
+            for t in range(self.rollout_steps):
+                *out_t, rnn_states = self.eval_action(
+                    states[t], infos[t],
+                    masks[t].unsqueeze(1),
+                    rnn_states, actions[t]
+                )
+                outputs.append(out_t)
+
+            return [th.stack(out,0) for out in zip(*outputs)]
+        else:
+            *outputs, _ = self.eval_action(states, infos, masks, rnn_states, actions)
+            return outputs
+
+    def process_batch_old(self, states, infos, masks, rnn_states, actions):
         if rnn_states:  #recurrent model
             values, log_probs, entropies = [], [], []
             for t in range(self.rollout_steps):
@@ -259,8 +270,41 @@ class ProximalPolicyOptimization(ParallelActorCritic):
         value, distr, rnn_state = self.network(state, info, mask, rnn_state)
         return value.squeeze(dim=1), distr.log_prob(action), distr.entropy(), rnn_state
 
-    def compute_loss(self, *args, **kwargs):
-        raise NotImplementedError('This function is not implemented for PPO')
+    def compute_loss(self, **kwargs):
+        """
+        Computes total loss for singe ppo update!
+        :param log_probs: log probs for the current policy
+        :param old_log_probs: log probs for the old policy that generated samples
+        :param advantages: normalized advantages computed using the old critic model
+        :param values: new value estimates from the current critic model
+        :param returns: return estimates computed using the old critic model
+        :param entropies: entropy values for the current policy
+        :return: a tensor with total loss,
+                 plus a dict of with actor_loss, critic_loss and entropy_loss floats
+        """
+        log_probs, old_log_probs = kwargs['log_probs'], kwargs['old_log_probs']
+        advantages, values = kwargs['advantages'], kwargs['values']
+        returns, entropies = kwargs['returns'], kwargs['entropies']
+
+        ratio = th.exp(log_probs - old_log_probs)
+        surr1 = ratio * advantages
+        surr2 = th.clamp(ratio, 1. - self.ppo_clip, 1. + self.ppo_clip) * advantages
+        actor_loss = -th.min(surr1, surr2).mean()  #maximize actor loss
+        #minimize prediction error for critic:
+        critic_loss = self.critic_coef * (values - returns).pow(2).mean()
+        #critic_loss = F.mse_loss(values, returns) * self.critic_coef
+        #critic_loss = 2.*self.critic_coef * F.smooth_l1_loss(values, returns)
+
+        #maximize(that's were minus comes from) entropy:
+        entropy_loss = - self.entropy_coef * entropies.mean()
+
+        loss = critic_loss + actor_loss + entropy_loss
+
+        return loss, {
+            'actor_loss':actor_loss.item(),
+            'critic_loss':critic_loss.item(),
+            'entropy_loss':entropy_loss.item(),
+        }
 
 
 

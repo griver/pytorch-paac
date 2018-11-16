@@ -18,14 +18,10 @@ TrainingStats = namedtuple("TrainingStats",
                                 'term_prec', 't_ratio', 'p_ratio'])
 
 
-class MultiTaskActorCritic(ParallelActorCritic):
+class MultiTaskA2C(ParallelActorCritic):
 
-    class RolloutData(object):
-        __slots__ = [
-            'values','log_probs',
-            'rewards', 'entropies',
-            'masks', 'next_v',
-            'log_terminals','tasks_status']
+    class RolloutData(ParallelActorCritic.RolloutData):
+        __slots__ = ['log_terminals','tasks_status']
 
         def __init__(self, values, log_probs, rewards,
                      entropies, log_terminals, masks,
@@ -39,16 +35,17 @@ class MultiTaskActorCritic(ParallelActorCritic):
             self.log_terminals =log_terminals
             self.tasks_status = tasks_status
 
+
     def __init__(self, *args, **kwargs):
         term_weights = kwargs.pop('term_weights')
         self._term_model_coef = kwargs.pop('termination_model_coef')
 
-        super(MultiTaskActorCritic, self).__init__(*args, **kwargs)
+        super(MultiTaskA2C, self).__init__(*args, **kwargs)
 
         logging.debug('Termination loss class weights = {0}'.format(term_weights))
         class_weights = th.tensor(term_weights).to(self.device, th.float32)
         self._term_model_loss = nn.NLLLoss(weight=class_weights).to(self.device)
-        self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'term_loss', 'grad_norm'])
+        self.average_loss = utils.MovingAverage(0.01, ['actor_loss', 'critic_loss', 'entropy_loss', 'term_loss', 'grad_norm'])
 
     def rollout(self, state, info, mask, rnn_state):
         """performs a rollout"""
@@ -94,17 +91,20 @@ class MultiTaskActorCritic(ParallelActorCritic):
         return acts, values.squeeze(dim=1), log_probs, entropy, log_done, net_states
 
     def update_weights(self, rollout_data):
-        returns = self.compute_returns(rollout_data.next_v, rollout_data.rewards, rollout_data.masks, self.gamma)
+        returns = rollout_data.compute_returns(self.gamma, use_gae=self.use_gae)
 
         loss, update_info = self.compute_loss(
-            th.cat(returns), th.cat(rollout_data.values),
-            th.cat(rollout_data.log_probs), th.cat(rollout_data.entropies)
+            returns=th.cat(returns),
+            values=th.cat(rollout_data.values),
+            log_probs=th.cat(rollout_data.log_probs),
+            entropies=th.cat(rollout_data.entropies)
         )
+
         if self._term_model_coef > 0.:
             term_loss, term_info = self.compute_termination_model_loss(
-                th.cat(rollout_data.log_terminals),
-                th.cat(rollout_data.tasks_status),#0-running,1-success,2-fail
-                th.cat(rollout_data.masks).to(th.uint8) #1-episode is not done, 0-episode is done
+                log_terminals=th.cat(rollout_data.log_terminals),
+                tasks_status=th.cat(rollout_data.tasks_status),  #0-running,1-success,2-fail
+                masks=th.cat(rollout_data.masks).to(th.uint8)  #1-episode is not done, 0-episode is done
             )
             loss += self._term_model_coef*term_loss
             update_info.update(**term_info)
@@ -118,7 +118,13 @@ class MultiTaskActorCritic(ParallelActorCritic):
         update_info['grad_norm'] = global_norm
         return update_info
 
-    def compute_termination_model_loss(self, log_terminals, tasks_status, ep_masks):
+    def compute_termination_model_loss(self, **kwargs):
+        '''
+        Receives three tensors: log_terminals, tasks_status, masks
+        :return: a 0-tensor with termination prediction loss
+                 and a dict with it's float value
+        '''
+        log_terminals, tasks_status, ep_masks = kwargs['log_terminals'], kwargs['tasks_status'], kwargs['masks']
         tasks_status[tasks_status > 1] = 0 # we are predicting only success states
         tasks_status = tasks_status[ep_masks]
         log_terminals = log_terminals[ep_masks,:]

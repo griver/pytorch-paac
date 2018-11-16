@@ -41,6 +41,8 @@ if __name__=='__main__':
     parser.add_argument('--old_preprocessing', action='store_true',
                         help="""Previous image preprocessing squashed values in a [0, 255] int range to a [0.,1.] float range.
                                 The new one returns an image with values in a [-1.,1.] float range.""")
+    parser.add_argument('--use_best', action='store_true',
+                        help='Whether to load a last saved model or a model with the best score')
 
     args = parser.parse_args()
     train_args = utils.load_args(folder=args.folder)
@@ -49,7 +51,7 @@ if __name__=='__main__':
 
     env_creator = get_environment_creator(args)
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
-    steps_trained = ParallelActorCritic.update_from_checkpoint(args.folder, network, use_cpu=(args.device=='cpu'))
+    steps_trained = ParallelActorCritic.update_from_checkpoint(args.folder, network, use_cpu=(args.device=='cpu'), use_best=args.use_best)
 
     if args.old_preprocessing:
         network._preprocess = old_preprocess_images

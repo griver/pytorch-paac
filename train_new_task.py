@@ -3,7 +3,7 @@ import logging
 import utils
 from emulators import TaxiGamesCreator
 import torch
-from algos_multi_task import MultiTaskActorCritic
+from algos_multi_task import MultiTaskA2C
 from utils.lr_scheduler import LinearAnnealingLR
 from batch_play import ConcurrentBatchEmulator, WorkerProcess
 
@@ -72,7 +72,7 @@ def main(args):
     #RMSprop defualts: momentum=0., centered=False, weight_decay=0
     network = mt_train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
 
-    training_steps_passed = MultiTaskActorCritic.update_from_checkpoint(
+    training_steps_passed = MultiTaskA2C.update_from_checkpoint(
         args.load_folder, network, use_cpu=args.device == 'cpu',
         ignore_layers=tuple() if args.finetuning else args.train_layers
     )
@@ -89,7 +89,7 @@ def main(args):
 
     try:
         batch_env.start_workers()
-        learner = MultiTaskActorCritic(
+        learner = MultiTaskA2C(
             network, opt,
             lr_scheduler,
             batch_env,

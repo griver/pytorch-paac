@@ -1,2 +1,2 @@
-from .paac import ParallelActorCritic
+from .paac import ParallelActorCritic, normalize
 from .ppo import ProximalPolicyOptimization

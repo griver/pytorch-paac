@@ -97,7 +97,7 @@ if __name__=='__main__':
 
     env_creator = train.TaxiGamesCreator(**vars(args))
     network = train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
-    steps_trained = train.MultiTaskActorCritic.update_from_checkpoint(
+    steps_trained = train.MultiTaskA2C.update_from_checkpoint(
         args.folder, network, use_cpu=args.device == 'cpu'
     )
 

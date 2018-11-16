@@ -3,7 +3,7 @@ import time
 import numpy as np
 import torch
 import utils
-from train_warehouse import MultiTaskActorCritic, get_network_and_environment_creator, args_to_str, eval_network, evaluate
+from train_warehouse import MultiTaskA2C, get_network_and_environment_creator, args_to_str, eval_network, evaluate
 
 
 def handle_commandline():
@@ -49,8 +49,8 @@ if __name__ == '__main__':
     args = fix_args_for_test(args, train_args)
 
     checkpoint_path = utils.join_path(
-        args.folder, MultiTaskActorCritic.CHECKPOINT_SUBDIR,
-        MultiTaskActorCritic.CHECKPOINT_LAST if args.last else MultiTaskActorCritic.CHECKPOINT_BEST
+        args.folder, MultiTaskA2C.CHECKPOINT_SUBDIR,
+        MultiTaskA2C.CHECKPOINT_LAST if args.last else MultiTaskA2C.CHECKPOINT_BEST
     )
     net_creator, env_creator = get_network_and_environment_creator(args)
     network, steps_trained = load_trained_network(net_creator, checkpoint_path, args.device=='cpu')

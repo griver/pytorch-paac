@@ -3,6 +3,7 @@ from os.path import join as join_path
 from os.path import isfile
 import _pickle as pickle
 import json
+from collections import defaultdict
 #import shutil
 
 
@@ -125,6 +126,30 @@ class MovingAverage(object):
         l = ['MovingAverage:']
         for k, v in self.avr_dict.items():
             l.append('{}={:.6f}'.format(k,v))
+        return ' '.join(l)
+
+
+class MovingAverageNew(object):
+    def __init__(self, update_coef, averages_names=None):
+        if averages_names:
+            self.avr_dict = {n:0. for n in averages_names}
+        else:
+            self.avr_dict = defaultdict(float) # inits with 0.
+        self.update_coef = update_coef
+
+    def update(self, **new_data):
+        old_coef = 1. - self.update_coef
+        for k, val in new_data.items():
+            self.avr_dict[k] = self.update_coef*val + old_coef*self.avr_dict[k]
+
+    def __getattr__(self, item):
+        return self.avr_dict[item]
+
+    def __str__(self):
+        l = ['MovingAverage:']
+        keys = sorted(self.avr_dict.keys())
+        for k in keys:
+            l.append('{}={:.6f}'.format(k,self.avr_dict[k]))
         return ' '.join(l)
 
 

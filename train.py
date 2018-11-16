@@ -94,37 +94,22 @@ def main(args):
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
 
     if args.algo == 'a2c':
-        Optimizer = torch.optim.RMSprop #RMSprop defualts: momentum=0., centered=False, weight_decay=0
-        Algorithm = ParallelActorCritic
-        kwargs = dict(
-            save_folder=args.debugging_folder,
-            max_global_steps=args.max_global_steps,
-            rollout_steps=args.rollout_steps,
-            gamma=args.gamma,
-            critic_coef=args.critic_coef,
-            entropy_coef=args.entropy_coef,
-            clip_norm=args.clip_norm,
-            use_gae = args.use_gae
-        )
+        OptimizerCls = torch.optim.RMSprop #RMSprop defualts: momentum=0., centered=False, weight_decay=0
+        AlgorithmCls = ParallelActorCritic
+        algo_specific_args = dict()
     elif args.algo == 'ppo':
-        Optimizer = torch.optim.Adam
-        Algorithm = ProximalPolicyOptimization
-        kwargs = dict(
-            save_folder=args.debugging_folder,
-            max_global_steps=args.max_global_steps,
-            rollout_steps=args.rollout_steps,
-            gamma=args.gamma,
-            critic_coef=args.critic_coef,
-            entropy_coef=args.entropy_coef,
-            clip_norm=args.clip_norm,
+        OptimizerCls = torch.optim.Adam
+        AlgorithmCls = ProximalPolicyOptimization
+        algo_specific_args = dict(
             ppo_epochs=args.ppo_epochs, # default=5
             ppo_batch_size=args.ppo_batch_size, # defaults= 4
             ppo_clip=args.ppo_clip, # default=0.1
-            use_gae = args.use_gae
         )
+    else:
+        raise ValueError('Only ppo and a2c are implemented right now!')
 
-    opt = Optimizer(network.parameters(), lr=args.initial_lr, eps=args.e)
-    step = Algorithm.update_from_checkpoint(
+    opt = OptimizerCls(network.parameters(), lr=args.initial_lr, eps=args.e)
+    global_step = AlgorithmCls.update_from_checkpoint(
         args.debugging_folder, network, opt,
         use_cpu=args.device == 'cpu'
     )
@@ -135,7 +120,20 @@ def main(args):
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = Algorithm(network, opt, lr_scheduler, batch_env, global_step=step, **kwargs)
+        learner = AlgorithmCls(
+            network, opt,
+            lr_scheduler,
+            batch_env,
+            global_step=global_step,
+            save_folder=args.debugging_folder,
+            max_global_steps=args.max_global_steps,
+            rollout_steps=args.rollout_steps,
+            gamma=args.gamma,
+            critic_coef=args.critic_coef,
+            entropy_coef=args.entropy_coef,
+            clip_norm=args.clip_norm,
+            use_gae=args.use_gae,
+            **algo_specific_args)
         # evaluation results are saved as summaries of the training process:
         learner.evaluate = lambda network: eval_network(network, env_creator, 10)
         learner.train()

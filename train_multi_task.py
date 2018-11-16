@@ -9,7 +9,7 @@ from emulators import TaxiGamesCreator
 import utils
 import utils.eval_taxi as evaluate
 from utils.lr_scheduler import LinearAnnealingLR
-from algos_multi_task import MultiTaskActorCritic
+from algos_multi_task import MultiTaskA2C, MultiTaskPPO
 from networks import taxi_nets, preprocess_taxi_input
 
 from train import args_to_str, concurrent_emulator_handler, set_exit_handler
@@ -90,31 +90,51 @@ def main(args):
     env_creator = TaxiGamesCreator(**vars(args))
     #RMSprop defualts: momentum=0., centered=False, weight_decay=0
     network = create_network(args, env_creator.num_actions, env_creator.obs_shape)
-    opt = torch.optim.RMSprop(network.parameters(), lr=args.initial_lr, eps=args.e)
-    global_step = MultiTaskActorCritic.update_from_checkpoint(
+
+    if args.algo == 'a2c':
+        OptimizerCls = torch.optim.RMSprop
+        AlgorithmCls = MultiTaskA2C
+        algo_specific_args = dict()
+
+    elif args.algo == 'ppo':
+        OptimizerCls = torch.optim.Adam
+        AlgorithmCls = MultiTaskPPO
+        algo_specific_args = dict(
+            ppo_epochs=args.ppo_epochs,  # default=5
+            ppo_batch_size=args.ppo_batch_size,  # defaults= 4
+            ppo_clip=args.ppo_clip,  # default=0.1
+        )
+    else:
+        raise ValueError('Only ppo and a2c are implemented right now!')
+
+    opt = OptimizerCls(network.parameters(), lr=args.initial_lr, eps=args.e)
+    global_step = AlgorithmCls.update_from_checkpoint(
         args.debugging_folder,network, opt,
         use_cpu=args.device=='cpu'
     )
     lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
 
     batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
-        learner = MultiTaskActorCritic(
+        learner = AlgorithmCls(
             network, opt,
             lr_scheduler,
             batch_env,
-            save_folder=args.debugging_folder,
             global_step=global_step,
+            save_folder=args.debugging_folder,
             max_global_steps=args.max_global_steps,
             rollout_steps=args.rollout_steps,
             gamma=args.gamma,
             critic_coef=args.critic_coef,
             entropy_coef=args.entropy_coef,
             clip_norm=args.clip_norm,
+            use_gae=args.use_gae,
             term_weights=args.term_weights,
-            termination_model_coef=args.termination_model_coef
+            termination_model_coef=args.termination_model_coef,
+            **algo_specific_args
         )
         learner.evaluate = lambda net:eval_network(net, env_creator, 50)
         learner.train()
@@ -175,7 +195,9 @@ def get_arg_parser():
     parser = argparse.ArgumentParser()
     #environment args:
     TaxiGamesCreator.add_required_args(parser)
-    #actor-critic args:
+    #algorithm and model args:
+    parser.add_argument('--algo', choices=['a2c', 'ppo'], default='a2c', dest='algo',
+                        help="Algorithm to train." + show_default)
     parser.add_argument('--arch', choices=net_choices,  dest="arch", required=True,
                         help="Which network architecture to train"+show_default)
     parser.add_argument('--e', default=1e-5, type=float, help="Epsilon for the Rmsprop optimizer"+ show_default, dest="e")
@@ -193,8 +215,22 @@ def get_arg_parser():
                         help="If provided an agent will use it's coordinates as part of the observation")
     parser.add_argument('--no_conv', action='store_false', dest='use_conv',
                         help='Whether to use a convolutional module')
+
+    parser.add_argument('--gae', action='store_true', dest='use_gae',
+                        help='Whether to use Generalized Advantage Estimator '
+                             'or N-step Return for the advantage function estimation')
+
+    parser.add_argument('-pe', '--ppo_epochs', default=4, type=int,
+                        help="Number of training epochs in PPO."+show_default)
+    parser.add_argument('-pc', '--ppo_clip', default=0.1,  type=float,
+                        help="Clipping parameter for actor loss in PPO."+show_default)
+    parser.add_argument('-pb', '--ppo_batch', default=4, type=int, dest='ppo_batch_size',
+                        help='Batch size for PPO updates. If recurrent network is used '
+                             'this parameters specify the number of trajectories to be sampled '
+                             'from num_envs collected trajectories.'+show_default)
+
     #termination predictor args:
-    parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
+    parser.add_argument('-tmc', '--termination_model_coef', default=1., dest='termination_model_coef', type=float,
                         help='Weight of the termination model loss in the total loss'+show_default)
     parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
                         help='Class weights for the termination classifier loss.'+show_default)

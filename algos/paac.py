@@ -27,6 +27,7 @@ def n_step_returns(next_value, rewards, masks, gamma=0.99):
         returns[t] = R
     return returns
 
+
 def gae_returns(next_value, values, rewards, masks, gamma=0.99, lam=0.95):
     """
     GAE(gamma, lam) = SUM_{t in range(0,rollout_steps)} (gamma*lam)^t delta_t,
@@ -51,7 +52,8 @@ def gae_returns(next_value, values, rewards, masks, gamma=0.99, lam=0.95):
     return returns
 
 
-
+def normalize(tensor, eps=1e-6):
+    return (tensor - tensor.mean()) / (tensor.std() + eps)
 
 
 class ParallelActorCritic(object):
@@ -140,7 +142,7 @@ class ParallelActorCritic(object):
         #self.clip_gradients = utils.clip_local_grad_norm
         #self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
 
-        self.average_loss = utils.MovingAverage(0.01, ['actor', 'critic', 'entropy', 'grad_norm'])
+        self.average_loss = utils.MovingAverageNew(0.01)
         self.episodes_rewards = np.zeros(batch_env.num_emulators)
         self.reward_history = []
         logging.debug('Paac init is done')
@@ -266,8 +268,10 @@ class ParallelActorCritic(object):
         returns = rollout_data.compute_returns(self.gamma, use_gae=self.use_gae)
 
         loss, update_info = self.compute_loss(
-            th.cat(returns), th.cat(rollout_data.values),
-            th.cat(rollout_data.log_probs), th.cat(rollout_data.entropies)
+            returns=th.cat(returns),
+            values=th.cat(rollout_data.values),
+            log_probs=th.cat(rollout_data.log_probs),
+            entropies=th.cat(rollout_data.entropies)
         )
 
         self.lr_scheduler.adjust_learning_rate(self.global_step)
@@ -279,17 +283,24 @@ class ParallelActorCritic(object):
         update_info['grad_norm'] = global_norm
         return update_info
 
-    def compute_loss(self, returns, values, log_probs, entropies):
-        advantages = returns - values
+    def compute_loss(self, **kwargs):
+        returns, values = kwargs['returns'], kwargs['values']
+        log_probs, entropies = kwargs['log_probs'], kwargs['entropies']
 
-        critic_loss = self.critic_coef * advantages.pow(2).mean() #minimize
-        actor_loss = th.neg(log_probs * advantages.detach()).mean() # minimize -log(policy(a))*advantage(s,a)
+        advantages = returns - values.detach()
+        #advantages = normalize(advantages)
+
+        critic_loss = self.critic_coef * (values - returns).pow(2).mean() #advantages.pow(2).mean() #minimize
+        actor_loss = th.neg(log_probs * advantages).mean() # minimize -log(policy(a))*advantage(s,a)
         entropy_loss = self.entropy_coef*entropies.mean() # maximize entropy
 
         loss = actor_loss + critic_loss - entropy_loss
 
-        loss_data = {'actor':actor_loss.item(), 'critic':critic_loss.item(), 'entropy':entropy_loss.item()}
-        return loss, loss_data
+        return loss, {
+            'actor_loss':actor_loss.item(),
+            'critic_loss':critic_loss.item(),
+            'entropy_loss':entropy_loss.item()
+        }
 
     @classmethod
     def update_from_checkpoint(Cls, save_folder, network, optimizer=None,
