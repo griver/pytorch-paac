@@ -3,9 +3,9 @@ import torch.nn.functional as F
 import copy
 
 class ProximalPolicyOptimization(ParallelActorCritic):
-    save_every = 10**5
+    save_every = 5*(10**5 )
     print_every = 10240
-    eval_every = 10240 # * 20
+    eval_every = 10*10240 # * 20
 
     class RolloutData(object):
         """
@@ -148,7 +148,7 @@ class ProximalPolicyOptimization(ParallelActorCritic):
         # returns, values, log_probs, entropies):
         returns = rollout_data.compute_returns(self.gamma, use_gae=self.use_gae)
         returns = th.stack(returns, 0) #shape: [rollout_steps, num_envs]
-        values =  th.stack(rollout_data.values, 0)
+        values = th.stack(rollout_data.values, 0)
 
         advantages = normalize(returns - values) #mean=0, std=1.
 
