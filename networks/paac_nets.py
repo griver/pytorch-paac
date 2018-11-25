@@ -84,11 +84,12 @@ class AtariFF(nn.Module, BaseAgentNetwork):
 
 class AtariLSTM(nn.Module, BaseAgentNetwork):
     def __init__(self, num_actions, observation_shape, device,
-                 preprocess=preprocess_images):
+                 preprocess=preprocess_images, hidden_size=256):
         super(AtariLSTM, self).__init__()
         self._num_actions = num_actions
         self._obs_shape = observation_shape
         self._device = device
+        self._hidden_size = hidden_size
         self._preprocess = preprocess
         self._create_network()
         #recursivly traverse layers and inits weights and biases:
@@ -98,15 +99,17 @@ class AtariLSTM(nn.Module, BaseAgentNetwork):
 
     def _create_network(self):
         C,H,W = self._obs_shape
+
         self.conv1 = nn.Conv2d(C, 16, (8,8), stride=4)
         self.conv2 = nn.Conv2d(16, 32, (4,4), stride=2)
 
         convs = [self.conv1, self.conv2]
         C_out, H_out, W_out = calc_output_shape((C, H, W), convs)
 
-        self.lstm = nn.LSTMCell(C_out*H_out*W_out, 256, bias=True)
-        self.fc_policy = nn.Linear(256, self._num_actions)
-        self.fc_value = nn.Linear(256, 1)
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out, self._hidden_size, bias=True)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
+
 
     def forward(self, states, infos, masks, net_state):
         states = self._preprocess(states, self._device)
@@ -157,9 +160,9 @@ class VizdoomLSTM(AtariLSTM):
         convs = [self.conv1, self.conv2, self.conv3]
         C_out,H_out,W_out = calc_output_shape((C,H,W), convs)
 
-        self.lstm = nn.LSTMCell(C_out*H_out*W_out, hidden_dim, bias=True)
-        self.fc_policy = nn.Linear(hidden_dim, self._num_actions)
-        self.fc_value = nn.Linear(hidden_dim, 1)
+        self.lstm = nn.LSTMCell(C_out*H_out*W_out, self._hidden_size, bias=True)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
 
     def forward(self, states, infos, masks, rnn_state):
         x = self._preprocess(states, self._device)
@@ -175,6 +178,47 @@ class VizdoomLSTM(AtariLSTM):
         a_logits = self.fc_policy(hx)
         return self.fc_value(hx), Categorical(logits=a_logits), dict(hx=hx,cx=cx)
 
+
+class BigLSTM(AtariLSTM):
+
+    def _create_network(self):
+        C, H, W = self._obs_shape
+        hidden_dim = 256
+        self.obs_encoder = nn.Sequential(
+            nn.Conv2d(C, 16, (4, 4), stride=2),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, (4, 4), stride=2),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, (3, 3), stride=2),
+            nn.ReLU(),
+        )
+
+        C_out, H_out, W_out = calc_output_shape((C,H,W), [self.obs_encoder])
+        self.lstm = nn.LSTMCell(C_out * H_out * W_out, self._hidden_size, bias=True)
+        self.fc_policy = nn.Linear(self._hidden_size, self._num_actions)
+        self.fc_value = nn.Linear(self._hidden_size, 1)
+
+    def forward(self, states, infos, masks, rnn_state):
+        x = self._preprocess(states, self._device)
+        x = self.obs_encoder(x)
+        x = x.view(x.size()[0], -1)
+
+        hx, cx = rnn_state['hx'] * masks, rnn_state['cx'] * masks
+        hx, cx = self.lstm(x, (hx,cx))
+
+        a_logits = self.fc_policy(hx)
+        return self.fc_value(hx), Categorical(logits=a_logits), dict(hx=hx,cx=cx)
+
+    def seq_forward(self, states, infos, masks, rnn_state):
+        x = self._preprocess(states, self._device)
+        x = self.obs_encoder(x)
+
+        *sample_dims, C,H,W = x.shape
+        if len(sample_dims) > 2:
+            T, batch_size = sample_dims
+        else:
+            T, batch_size = None, sample_dims[0]
+            
 
 vizdoom_nets = {
     'lstm': VizdoomLSTM,

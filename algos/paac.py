@@ -142,7 +142,7 @@ class ParallelActorCritic(object):
         #self.clip_gradients = utils.clip_local_grad_norm
         #self.clip_gradients = lambda params, _: utils.global_grad_norm(params)
 
-        self.average_loss = utils.MovingAverageNew(0.01)
+        self.average_loss = utils.MovingAverage(0.01)
         self.episodes_rewards = np.zeros(batch_env.num_emulators)
         self.reward_history = []
         logging.debug('Paac init is done')

@@ -37,7 +37,7 @@ class VizdoomEmulator(BaseEnvironment):
     SCREEN_RESOLUTION = ScreenResolution.RES_320X240
     MODE = Mode.PLAYER
 
-    def __init__(self, emulator_id, game, resource_folder, gray=False, reward_coef=1.,#1/100,
+    def __init__(self, emulator_id, game, resource_folder, gray=False, reward_coef=1/100,
                  action_repeat=6, history_window=1, screen_size=(60,90), verbose=0, visualize=False, **unknown):
         if verbose >= 2:
             logging.debug('Initializing Vizdoom.{}. emulator_id={}'.format(game, emulator_id))
