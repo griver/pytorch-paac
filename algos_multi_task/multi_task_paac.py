@@ -45,7 +45,7 @@ class MultiTaskA2C(ParallelActorCritic):
         logging.debug('Termination loss class weights = {0}'.format(term_weights))
         class_weights = th.tensor(term_weights).to(self.device, th.float32)
         self._term_model_loss = nn.NLLLoss(weight=class_weights).to(self.device)
-        self.average_loss = utils.MovingAverage(0.01)
+        self.average_loss = utils.MovingAverage(0.05)
 
     def rollout(self, state, info, mask, rnn_state):
         """performs a rollout"""

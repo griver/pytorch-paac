@@ -102,7 +102,7 @@ def main(args):
         AlgorithmCls = ProximalPolicyOptimization
         algo_specific_args = dict(
             ppo_epochs=args.ppo_epochs, # default=5
-            ppo_batch_size=args.ppo_batch_size, # defaults= 4
+            ppo_batch_num=args.ppo_batch_num, # defaults= 4
             ppo_clip=args.ppo_clip, # default=0.1
         )
     else:
@@ -217,10 +217,10 @@ def add_algo_args(parser, framework):
                         help="Number of training epochs in PPO."+show_default)
     parser.add_argument('-pc', '--ppo_clip', default=0.2,  type=float,
                         help="Clipping parameter for actor loss in PPO."+show_default)
-    parser.add_argument('-pb', '--ppo_batch', default=4, type=int, dest='ppo_batch_size',
-                        help='Batch size for PPO updates. If recurrent network is used '
-                             'this parameters specify the number of trajectories to be sampled '
-                             'from num_envs collected trajectories.'+show_default)
+    parser.add_argument('-pb', '--ppo_batch', default=4, type=int, dest='ppo_batch_num',
+                        help='Number of bathes for one ppo_epoch. In case of a recurrent network'
+                             'batches consist from entire trajectories, otherwise from one-step transitions.'
+                             + show_default)
 
 
 def get_arg_parser():

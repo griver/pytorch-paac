@@ -57,8 +57,10 @@ class MultiTaskPPO(ProximalPolicyOptimization):
         sum_grad_norm = sum_actor_loss = sum_critic_loss \
             = sum_entropy_loss = sum_term_loss = 0.
 
+        epoch_kl = 0.
         num_updates = 0
         for epoch in range(self.ppo_epochs):
+            kl = 0.
             for batch in self._batches_from_rollout(advantages, returns, rollout_data):
                 num_updates += 1
 
@@ -104,12 +106,22 @@ class MultiTaskPPO(ProximalPolicyOptimization):
                 sum_entropy_loss += loss_info['entropy_loss']
                 sum_grad_norm += grad_norm #
 
+                kl += (old_log_probs_batch - log_probs).mean().item()
+
+            epoch_kl = kl/self.ppo_batch_num
+
+            if self.kl_threshold and (epoch_kl > self.kl_threshold * 1.4):
+                break
+
+
         return {
-            'actor_loss':sum_actor_loss/num_updates,
-            'critic_loss':sum_critic_loss/num_updates,
-            'entropy_loss':sum_entropy_loss/num_updates,
-            'term_loss':sum_term_loss/num_updates,
-            'grad_norm': sum_grad_norm/num_updates
+            'epochs': epoch+1,
+            'kl': epoch_kl,
+            'La':sum_actor_loss/num_updates,
+            'Lc':sum_critic_loss/num_updates,
+            'Le':sum_entropy_loss/num_updates,
+            'Lt':sum_term_loss/num_updates,
+            '|∇|': sum_grad_norm/num_updates
         }
 
     def eval_action(self, state, info, mask, rnn_state, action):

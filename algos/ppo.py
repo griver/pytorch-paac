@@ -1,3 +1,5 @@
+import logging
+
 from .paac import ParallelActorCritic, th, np, n_step_returns, gae_returns, normalize
 import torch.nn.functional as F
 import copy
@@ -101,8 +103,9 @@ class ProximalPolicyOptimization(ParallelActorCritic):
 
     def __init__(self, *args, **kwargs):
         self.ppo_epochs = kwargs.pop('ppo_epochs', 4)
-        self.ppo_batch_size = kwargs.pop('ppo_batch_size', 4)#or 32?
+        self.ppo_batch_num = kwargs.pop('ppo_batch_num', 4)#or 32?
         self.ppo_clip = kwargs.pop('ppo_clip', 0.1)
+        self.kl_threshold = kwargs.pop('kl_threshold', None)
 
         super(ProximalPolicyOptimization, self).__init__(*args, **kwargs)
 
@@ -154,8 +157,10 @@ class ProximalPolicyOptimization(ParallelActorCritic):
 
         sum_grad_norm = sum_actor_loss = sum_critic_loss = sum_entropy_loss = 0.
 
+        epoch_kl = 0.
         num_updates = 0
         for epoch in range(self.ppo_epochs):
+            kl = 0.
             for batch in self._batches_from_rollout(advantages, returns, rollout_data):
                 num_updates += 1
 
@@ -186,26 +191,35 @@ class ProximalPolicyOptimization(ParallelActorCritic):
                 sum_actor_loss += loss_info['actor_loss']
                 sum_critic_loss += loss_info['critic_loss']
                 sum_entropy_loss += loss_info['entropy_loss']
-                sum_grad_norm += grad_norm #
+                sum_grad_norm += grad_norm
+                # kl-divergence between the old and the new policies:
+                kl += (old_log_probs_batch - log_probs).mean().item()
+
+            epoch_kl = kl / self.ppo_batch_num
+            if self.kl_threshold and (epoch_kl > self.kl_threshold * 1.4):
+                break
 
         return {
-            'actor':sum_actor_loss/num_updates,
-            'critic':sum_critic_loss/num_updates,
-            'entropy':sum_entropy_loss/num_updates,
-            'grad_norm': sum_grad_norm/num_updates
+            'epochs': epoch+1,
+            'kl': epoch_kl,
+            'La':sum_actor_loss/num_updates,
+            'Lc':sum_critic_loss/num_updates,
+            'Le':sum_entropy_loss/num_updates,
+            '|∇|': sum_grad_norm/num_updates
         }
 
     def _batches_from_rollout(self, advantages, returns, rollout_data):
         if rollout_data.initial_rnn_state:
             indices = th.randperm(self.num_emulators)
-            assert self.num_emulators % self.ppo_batch_size == 0, ''
+            assert self.num_emulators % self.ppo_batch_num == 0, 'we prefer to divide samples to batches of equal size'
+            batch_size = self.num_emulators // self.ppo_batch_num
             masks = th.stack(rollout_data.masks,0)
             log_probs = th.stack(rollout_data.log_probs, 0)
             actions = th.stack(rollout_data.actions, 0)
             rnn_state = rollout_data.initial_rnn_state
 
-            for l in range(0, self.num_emulators, self.ppo_batch_size):
-                idx = indices[l:l+self.ppo_batch_size]
+            for l in range(0, self.num_emulators, batch_size):
+                idx = indices[l:l+batch_size]
 
                 states_batch = [s[idx,:] for s in rollout_data.states]
                 infos_batch = [{k:v[idx] for k,v in i_t.items()} for i_t in rollout_data.infos]

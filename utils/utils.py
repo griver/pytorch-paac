@@ -109,6 +109,7 @@ def global_grad_norm(parameters, norm_type=2):
     return global_norm(grads, norm_type)
 
 
+
 class MovingAverage(object):
     def __init__(self, update_coef, averages_names=None):
         if averages_names:
@@ -129,6 +130,7 @@ class MovingAverage(object):
         l = ['MovingAverage:']
         keys = sorted(self.avr_dict.keys())
         for k in keys:
+            self.avr_dict[k]
             l.append('{}={:.6f}'.format(k,self.avr_dict[k]))
         return ' '.join(l)
 
