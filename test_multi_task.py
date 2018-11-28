@@ -106,7 +106,7 @@ if __name__=='__main__':
     #evaluate = eval_mode[args.mode]
 
     if args.visualize:
-        num_steps, rewards, extra_stats = eval.location_frequency_eval( #eval.count_tasks_lengths(  #eval.visual_eval(
+        num_steps, rewards, extra_stats = eval.visual_eval(#eval.location_frequency_eval( #eval.count_tasks_lengths(  #eval.visual_eval(
             network, env_creator,
             args.test_count, args.greedy,
             args.termination_threshold

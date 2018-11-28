@@ -117,7 +117,8 @@ class ParallelActorCritic(object):
         ensure_dir(self.checkpoint_dir)
 
         self.global_step = global_step
-        self.last_saving_step = global_step
+        self.last_print = self.last_eval = self.last_save = global_step
+
         self.network = network
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
@@ -190,29 +191,30 @@ class ParallelActorCritic(object):
             self.global_step += steps_per_update
             num_updates += 1
 
-            if num_updates % (self.print_every // steps_per_update) == 0:
+            if self.global_step - self.last_print >= self.print_every:
                 curr_time = time.time()
+                self.last_print = self.global_step
                 self._training_info(
                     total_rewards=self.reward_history,
                     average_speed=(self.global_step - global_step_start) / (curr_time - start_time),
                     loop_speed=steps_per_update / (curr_time - loop_start_time),
                     update_stats=self.average_loss)
 
-            if num_updates % (self.eval_every // steps_per_update) == 0:
+            if self.global_step - self.last_eval >= self.eval_every:
+                self.last_eval = self.global_step
                 if self.evaluate:
                     stats = self.evaluate(self.network)
                     training_stats.append((self.global_step, stats))
                     curr_mean_r = stats.mean_r
 
-            if self.global_step - self.last_saving_step >= self.save_every:
-
+            if self.global_step - self.last_save >= self.save_every:
                 is_best = False
                 if curr_mean_r > best_mean_r:
                     best_mean_r = curr_mean_r
                     is_best = True
                 self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=is_best)
                 training_stats = []
-                self.last_saving_step = self.global_step
+                self.last_save = self.global_step
 
         if len(training_stats) and training_stats[-1][0] != self.global_step:
             #if we haven't already evaluated the network at the current step:

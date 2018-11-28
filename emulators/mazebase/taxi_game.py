@@ -83,8 +83,8 @@ class Taxi(games.WithWaterAndBlocksMixin):
             kwargs['map_size'] = list(kwargs['map_size'])*2
         self.future_map_size = kwargs['map_size'] # map_size we'll use in the next episode
         #BaseMaseGame.__init__ calls self.reset(), so we need to create all feilds before the call
-        kwargs['waterpct'] = 0.1
-        kwargs['blockpct'] = 0.25
+        #kwargs['waterpct'] = 0.1
+        #kwargs['blockpct'] = 0.25
         super(Taxi, self).__init__(**kwargs)
         # Here we directly modify BaseMazeGame.__all_possible_features property:
         features = super(Taxi, self).all_possible_features()
