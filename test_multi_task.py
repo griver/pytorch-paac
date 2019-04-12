@@ -30,16 +30,24 @@ def handle_commandline(command_line=None):
     parser = get_argparser(eval_modes, default_mode, devices, available_games)
     args = parser.parse_args(command_line.split()) if command_line else parser.parse_args()
 
-    logging.info("Loading training config from {}".format(args.folder))
-    train_args = utils.load_args(folder=args.folder, file_name=train.ARGS_FILE)
+    if len(args.folders) > 2:
+        raise ValueError(
+            'main_args.folders expects one or two folders, {} were given!'.format(len(args.folders)))
+
+    logging.info("Loading training config from {}".format(args.folders[0]))
+    train_args = utils.load_args(folder=args.folders[0], file_name=train.ARGS_FILE)
     args = fix_args_for_test(args, train_args)
 
-    return args
+    if len(args.folders) == 2:
+        second_model_args = utils.load_args(folder=args.folders[1], file_name=train.ARGS_FILE)
+        return args, argparse.Namespace(**second_model_args)
+    else:
+        return args, None
 
 
 def get_argparser(eval_modes, default_mode, devices, available_games):
     parser = argparse.ArgumentParser()
-    parser.add_argument('folder', type=str, help="Folder with a trained model.")
+    parser.add_argument('folders', type=str, nargs='+', help="Folder or folders with a trained models")
     parser.add_argument('-tc', '--test_count', default=1, type=int, dest="test_count",
                         help="Number of episodes to test the model")
     parser.add_argument('-g', '--greedy', action='store_true',
@@ -93,26 +101,46 @@ def fix_args_for_test(args, train_args):
 
 
 if __name__=='__main__':
-    args = handle_commandline()
+    main_args, second_model_args = handle_commandline()
 
-    env_creator = train.TaxiGamesCreator(**vars(args))
-    network = train.create_network(args, env_creator.num_actions, env_creator.obs_shape)
+
+    env_creator = train.TaxiGamesCreator(**vars(main_args))
+    network = train.create_network(main_args, env_creator.num_actions, env_creator.obs_shape)
+
     steps_trained = train.MultiTaskA2C.update_from_checkpoint(
-        args.folder, network, use_cpu=args.device == 'cpu'
+        main_args.folders[0], network,
+        use_cpu=main_args.device == 'cpu'
     )
 
-    print(train.args_to_str(args))
-    print('Model was trained for {} steps'.format(steps_trained))
-    #evaluate = eval_mode[args.mode]
-
-    if args.visualize:
-        num_steps, rewards, extra_stats = eval.visual_eval(#eval.location_frequency_eval( #eval.count_tasks_lengths(  #eval.visual_eval(
-            network, env_creator,
-            args.test_count, args.greedy,
-            args.termination_threshold
+    if second_model_args:
+        second_network = train.create_network(
+            second_model_args,
+            env_creator.num_actions,
+            env_creator.obs_shape
+        )
+        second_steps_trained = train.MultiTaskA2C.update_from_checkpoint(
+            main_args.folders[1], second_network,
+            use_cpu=main_args.device == 'cpu'
         )
 
-        print('Perfromed {0} tests for {1}.'.format(args.test_count, args.game))
+    print(train.args_to_str(main_args))
+
+    if second_model_args:
+        print('First model was trained for {} steps'.format(steps_trained))
+        print('Second model was trained for {} steps'.format(second_steps_trained))
+    else:
+        print('Model was trained for {} steps'.format(steps_trained))
+    #evaluate = eval_mode[main_args.mode]
+
+    if main_args.visualize:
+        # eval.count_tasks_lengths(  #eval.visual_eval(
+        num_steps, rewards, extra_stats = eval.location_frequency_eval(
+            network, second_network, env_creator,
+            main_args.test_count, main_args.greedy,
+            main_args.termination_threshold
+        )
+
+        print('Perfromed {0} tests for {1}.'.format(main_args.test_count, main_args.game))
         print('Mean number of steps: {0:.3f}'.format(np.mean(num_steps)))
         print('Mean R: {0:.2f}'.format(np.mean(rewards)), end=' | ')
         print('Max R: {0:.2f}'.format(np.max(rewards)), end=' | ')
@@ -127,5 +155,5 @@ if __name__=='__main__':
     else:
         train.eval_network(
             network, env_creator,
-            args.test_count, args.greedy,
-            args.termination_threshold, args.verbose)
+            main_args.test_count, main_args.greedy,
+            main_args.termination_threshold, main_args.verbose)

@@ -48,7 +48,7 @@ class MazebaseEmulator(BaseEnvironment):
                  random_seed=17, finish_action=False, fail_reward=0.,
                  single_task_episodes=False, max_episode_steps=300, **unknown):
         if verbose >= 2:
-            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+            logging.debug('Emulator#{} received unknown main_args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
         available_games = self.available_games()
         assert game in available_games, '{0}: There is no such game in the mazebase framework'.format(game)
@@ -79,7 +79,7 @@ class MazebaseEmulator(BaseEnvironment):
         # Mazebase generates random samples
         # within itself in different modules across the package; therefore,
         # we can't fix a random generator without rewriting mazebase.
-        # self.rand_gen = random.Random(args.random_seed)
+        # self.rand_gen = random.Random(main_args.random_seed)
 
     def reset(self):
         #There is no activity in the masebase games aside from agent's activity.

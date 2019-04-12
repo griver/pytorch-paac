@@ -31,7 +31,7 @@ create_json_config()
 print('Arguments:', args)
 
 emulators = [WarehouseEmulator(i, args, task_manager()) for i in range(args.num_emulators)]
-#emulators = [ve.VizdoomEmulator(i, args) for i in range(args.num_emulators)]
+#emulators = [ve.VizdoomEmulator(i, main_args) for i in range(main_args.num_emulators)]
 
 buttons = np.array(emulators[0].game.get_available_buttons())
 legal_actions = emulators[0].get_legal_actions()

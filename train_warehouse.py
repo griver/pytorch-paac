@@ -64,7 +64,7 @@ def main(args):
     logging.info(args_to_str(args))
 
     batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
-    #batch_env = SequentialBatchEmulator(env_creator, args.num_envs, init_env_id=1)
+    #batch_env = SequentialBatchEmulator(env_creator, main_args.num_envs, init_env_id=1)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
@@ -164,5 +164,5 @@ def get_arg_parser():
 if __name__ == '__main__':
     args = get_arg_parser().parse_args()
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
+    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
     main(args)

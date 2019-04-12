@@ -41,7 +41,7 @@ class VizdoomEmulator(BaseEnvironment):
                  action_repeat=6, history_window=1, screen_size=(60,90), verbose=0, visualize=False, **unknown):
         if verbose >= 2:
             logging.debug('Initializing Vizdoom.{}. emulator_id={}'.format(game, emulator_id))
-            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+            logging.debug('Emulator#{} received unknown main_args: {}'.format(emulator_id, unknown))
         doom_game = DoomGame()
         config_file_path = join_path(resource_folder, game+'.cfg')
         doom_game.load_config(config_file_path)
@@ -53,7 +53,7 @@ class VizdoomEmulator(BaseEnvironment):
             doom_game.add_game_args("+freelook 1")
 
         # with a fixed seed all episodes in this environment will be identical
-        #doom_game.set_seed(args.random_seed)
+        #doom_game.set_seed(main_args.random_seed)
         # doom_game.add_available_game_variable(vizdoom.GameVariable.AMMO2)
         doom_game.init()
         self.game = doom_game

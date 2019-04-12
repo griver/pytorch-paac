@@ -33,7 +33,7 @@ def load_trained_network(net_creator, checkpoint_path, use_cpu):
 
 def fix_args_for_test(args, train_args):
     for k, v in train_args.items():
-        if getattr(args, k, None) == None: #this includes cases where args.k is None
+        if getattr(args, k, None) == None: #this includes cases where main_args.k is None
             setattr(args, k, v)
 
     args.max_global_steps = 0

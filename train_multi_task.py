@@ -84,7 +84,7 @@ def eval_network(network, env_creator, num_episodes,
 
 def main(args):
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
+    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
     env_creator = TaxiGamesCreator(**vars(args))
@@ -194,9 +194,9 @@ def get_arg_parser():
     show_default = " [default: %(default)s]"
 
     parser = argparse.ArgumentParser()
-    #environment args:
+    #environment main_args:
     TaxiGamesCreator.add_required_args(parser)
-    #algorithm and model args:
+    #algorithm and model main_args:
     parser.add_argument('--algo', choices=['a2c', 'ppo'], default='a2c', dest='algo',
                         help="Algorithm to train." + show_default)
     parser.add_argument('--arch', choices=net_choices,  dest="arch", required=True,
@@ -230,12 +230,12 @@ def get_arg_parser():
                              'batches consist from entire trajectories, otherwise from one-step transitions.'
                              +show_default)
 
-    #termination predictor args:
+    #termination predictor main_args:
     parser.add_argument('-tmc', '--termination_model_coef', default=1., dest='termination_model_coef', type=float,
                         help='Weight of the termination model loss in the total loss'+show_default)
     parser.add_argument('-tw', '--term_weights', default=[0.4, 1.6], nargs=2, type=float,
                         help='Class weights for the termination classifier loss.'+show_default)
-    #args that common for any model that learns on parallel environments:
+    #main_args that common for any model that learns on parallel environments:
     parser.add_argument('-d', '--device', default=default_device, type=str, choices=devices, dest="device",
                         help="Device to be used ('cpu' or 'cuda'). Use CUDA_VISIBLE_DEVICES to specify a particular GPU" + show_default)
     parser.add_argument('--max_global_steps', default=80000000, type=int, dest="max_global_steps",

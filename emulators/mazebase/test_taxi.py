@@ -55,7 +55,7 @@ if __name__ == '__main__':
     args = tr.handle_command_line(tr.get_arg_parser(), args_line)
 
     env_creator = tr.TaxiGamesCreator(**vars(args))
-    print('args:')
+    print('main_args:')
     print(tr.args_to_str(args))
 
     obs_shape = env_creator.obs_shape

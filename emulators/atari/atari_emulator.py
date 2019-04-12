@@ -68,7 +68,7 @@ class AtariEmulator(BaseEnvironment):
                  random_start=True, single_life_episodes=False,
                  history_window=1, visualize=False, verbose=0, **unknown):
         if verbose >= 2:
-            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+            logging.debug('Emulator#{} received unknown main_args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
         self.ale = ALEInterface()
         self.ale.setInt(b"random_seed", random_seed * (emulator_id + 1))

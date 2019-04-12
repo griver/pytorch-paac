@@ -17,13 +17,13 @@ def ensure_dir(file_path):
         os.makedirs(directory)
 
 
-def load_args(folder, file_name='args.json'):
+def load_args(folder, file_name='main_args.json'):
     file_path = join_path(folder, file_name)
     with open(file_path, 'r') as f:
         return json.load(f)
 
 
-def save_args(args, folder, file_name='args.json', exclude_args=tuple()):
+def save_args(args, folder, file_name='main_args.json', exclude_args=tuple()):
     save_args = {k:v for k,v in vars(args).items() if k not in exclude_args}
     file_path = join_path(folder, file_name)
     ensure_dir(file_path)

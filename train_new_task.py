@@ -65,7 +65,7 @@ def split_network_parameters(net, retrain_layers, finetuning=True):
 
 def main(args):
     utils.save_args(args, args.debugging_folder, file_name=mt_train.ARGS_FILE)
-    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
+    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
     logging.info(mt_train.args_to_str(args))
 
     env_creator = TaxiGamesCreator(**vars(args))

@@ -2,6 +2,7 @@ from mazebase import games
 import mazebase.items as maze_items
 import copy
 from mazebase.utils.mazeutils import choice, MazeException
+from mazebase.termcolor import cprint
 from mazebase.utils import creationutils
 from .taxi_featurizers import  LocalViewFeaturizer, GlobalViewFeaturizer, FewHotEncoder
 
@@ -99,12 +100,14 @@ class Taxi(games.WithWaterAndBlocksMixin):
         super(Taxi, self)._reset()
         #print('=============RESET====================')
         self.current_task = None
+        init_state = self._choose_reset_config()
+
         loc_agent = choice(creationutils.empty_locations(self, bad_blocks=[maze_items.Block]))
         self.agent = self.agent_cls(location=loc_agent)
         self._add_agent(self.agent, "TaxiAgent")
 
         loc_destination, loc_passenger = self._get_placement_locs(self.agent, 2)
-        init_state = self._choose_reset_config()
+
 
         # check relationship between locations of the passenger and the taxi locations
         if init_state.passenger_taxi == Relation.FAR:
@@ -304,43 +307,111 @@ class FixedTaxi(Taxi):
         self._preliminary_env = kwargs.pop('preliminary_env', False)
         self.repeat_episode = kwargs.pop('repeat_episode', False)  # if self.full_reset is True then
         self.fixed_passenger = kwargs.pop('fixed_passenger', True)
-        self.initial_game_state = None
+        self.initial_game_state = kwargs.pop('initial_state', None)
+
+        if self.initial_game_state is not None:
+            self.repeat_episode = True
 
         super(FixedTaxi, self).__init__(*args, **kwargs)
 
     def _reset(self):
         if self.repeat_episode:
-            self.restore(self.initial_game_state)
+            self._restore_old_map(self.initial_game_state)
         else:
-            super(FixedTaxi, self)._reset()
+            self._create_new_map()
             self.initial_game_state = self.collect_state_info()
             if not self._preliminary_env:
                 self.display()
 
+    def _create_new_map(self):
+        self.map_size = self.future_map_size
+        super(Taxi, self)._reset()
+        #print('=============RESET====================')
+        self.current_task = None
+        init_state = self._choose_reset_config()
+        if self._preliminary_env:
+            user_input = False
+        else:
+            user_input = self._confirm('Whant to specify object locations?')
+
+        if not user_input:
+            loc_agent = choice(creationutils.empty_locations(self, bad_blocks=[maze_items.Block]))
+        else:
+            loc_agent = self._read_location('Agent')
+
+        self.agent = self.agent_cls(location=loc_agent)
+        self._add_agent(self.agent, "TaxiAgent")
+
+        loc_destination, loc_passenger = self._get_placement_locs(self.agent, 2)
+
+        # check relationship between locations of the passenger and the taxi locations
+        if init_state.passenger_taxi == Relation.FAR:
+            if user_input:
+                loc_passenger = self._read_location('Passenger')
+            self.passenger = Passenger(location=loc_passenger)
+            self._add_item(self.passenger)
+        else:
+            self.passenger = Passenger(location=loc_agent)
+            self._add_item(self.passenger)
+            if init_state.passenger_taxi == Relation.INSIDE:
+                self.agent.forced_pickup()
+                assert self.passenger.is_pickedup, "Can't put a passenger into a taxi for init_state={}".format(init_state)
+
+        if init_state.taxi_destination == Relation.NEAR:
+            self.target = maze_items.Goal(location=loc_agent)
+        else:
+            if user_input:
+                loc_destination = self._read_location('Target')
+            self.target = maze_items.Goal(location=loc_destination)
+        self._add_item(self.target)
+
+        self.episode_steps = -1 # see the self._step() comment
+
+        self._info = {}
+        self._tasks_history = []
+
+    def _confirm(self, question):
+        for _ in range(10):
+            answer = input(question + '[y/n]')
+            if answer in ('y', 'n'):
+                return answer == 'y'
+            else:
+                print('Input y or n!')
+        else:
+            raise ValueError("You just don't want to cooperate!")
+
+    def _read_location(self,name):
+        for _ in range(10):
+            try:
+                x,y = map(int, input("{} location (x y):".format(name)).split())
+                if not self._in_bounds((x,y)):
+                    raise ValueError('{} is out of bound! Map size is: ({},{})', (x,y), self.width, self.height)
+                if self._tile_get_block((x,y), maze_items.Block) is not None:
+                    raise ValueError("you can't place an object on the tile with a brick wall!")
+                break
+            except ValueError as v:
+                print(v)
+        else:
+            raise ValueError("You just don't want to cooperate!")
+        return x,y
+
     def _choose_reset_config(self, params=None):
+
         if self._preliminary_env:
             return super(FixedTaxi, self)._choose_reset_config()
 
         print('Current map:')
-        self.display()
+        self.display(show_coordinates=True)
         print('posible configs:')
         for i, config in enumerate(self.reset_configs):
             print('#{}: {}'.format(i, config))
         init_id = int(input('Please, input the number of the desired config:'))
         chosen_config = self.reset_configs[init_id]
 
-        def confirm(question):
-            while True:
-                answer = input(question + '[y/n]')
-                if answer in ('y', 'n'):
-                    return answer == 'y'
-                else:
-                    print('Input y or n!')
-
-        self.repeat_episode = confirm(
+        self.repeat_episode = self._confirm(
             'Do you want to use this map and configuration in every episode?'
         )
-        self.fixed_passenger = confirm(
+        self.fixed_passenger = self._confirm(
             'Do you want to spawn passenger'
             ' in the same location every time?'
         )
@@ -371,7 +442,7 @@ class FixedTaxi(Taxi):
         )
         return state
 
-    def restore(self, state_info):
+    def _restore_old_map(self, state_info):
         self.current_task = 0
         self.episode_steps = 0
 
@@ -431,40 +502,18 @@ class FixedTaxi(Taxi):
         else:
             super(FixedTaxi, self).soft_respawn(finished_task)
 
-    def set_init_coordinate(self, obj_name, location):
-        """
-        Sets initial position of one of three possible game objects: taxi, passenger, destination
-        Changes take effect only in the next episode or when the passenger respawns.
-        :param obj_name: str, "taxi", "passenger" or "destination"
-        :param location:
-        :return:
-        """
-        if not self._in_bounds(location):
-            raise ValueError('Object location is out of bounds!')
-        if any(isinstance(item, maze_items.Block) for item in self._get_items(location=location)):
-            raise ValueError(
-                "You can't place {} in the same location{} with the impassable object".format(obj_name, location))
-
-        state_resume = self.initial_game_state['state_resume']
-        if obj_name == 'taxi':
-            state_resume['loc_taxi'] = location
-        elif obj_name == 'passenger':
-            state_resume['loc_passenger'] = location
-        elif obj_name == 'destination':
-            state_resume['loc_destination'] = location
-        else:
-            raise ValueError('You can change location of {}'.format(obj_name))
-
-    def display_path(self, path):
+    def display(self, show_coordinates=False):
         ''' Displays the game map for visualization '''
-        visited_states = set(path)
-        from mazebase.termcolor import cprint
+        if show_coordinates: print('   ', end='')
+
         cprint(' ' * (self.width + 2) * 3, None, 'on_white')
         for y in reversed(range(self.height)):
+            if show_coordinates:
+                print('{0:>3}'.format(y), end="")
             cprint('   ', None, 'on_white', end="")
             for x in range(self.width):
-                itemlst = sorted(filter(lambda x:x.visible, self._map[x][y]),
-                                 key=lambda x:x.PRIO)
+                itemlst = sorted(filter(lambda x: x.visible, self._map[x][y]),
+                                 key=lambda x: x.PRIO)
                 disp = [u'   ', None, None, None]
                 for item in itemlst:
                     config = item._get_display_symbol()
@@ -479,13 +528,14 @@ class FixedTaxi(Taxi):
                         if char != ' ':
                             d[i] = char
                     disp[0] = "".join(d)
-
                 text, color, bg, attrs = disp
-                if (x,y) in visited_states:
-                    has_water = any(isinstance(z,maze_items.Water) for z in itemlst)
-                    bg= 'on_green' if has_water else 'on_yellow'
-
                 cprint(text, color, bg, attrs, end="")
             cprint('   ', None, 'on_white')
+
+        if show_coordinates: print('   ', end='')
+
         cprint(' ' * (self.width + 2) * 3, None, 'on_white')
-        pass
+        if show_coordinates:
+            print(("   "*2)+\
+                   "".join('{0:>3}'.format(i) for i in range(self.width))+\
+                   "   ")

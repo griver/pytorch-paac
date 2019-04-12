@@ -31,6 +31,8 @@ class SingleLSTM(nn.Module, BaseAgentNetwork):
         self._use_conv = use_conv
         self._create_network()
         self.apply(init_model_weights)
+        self.clear_env_lstm = False#kwargs.pop('clear_env_lstm', False)
+
         assert self.training == True, "Model won't train If self.training is False"
 
     def _create_observation_encoder(self):
@@ -62,8 +64,10 @@ class SingleLSTM(nn.Module, BaseAgentNetwork):
 
     def forward(self, obs, infos, masks, net_state):
         task_ids, coords = infos['task_id'], infos['agent_loc']
-        obs, task_ids, coords, _ = self._preprocess(obs, infos, self._device)
+        obs, task_ids, coords, task_masks = self._preprocess(obs, infos, self._device)
 
+        if self.clear_env_lstm:
+            masks = masks * task_masks  # if self.erase_task_memory else masks
         #obs embeds:
         x = self._observation_encoder_forward(obs)
 
@@ -194,7 +198,9 @@ class FactorizedTaskEnv(SingleLSTM):
             x = torch.cat([x, coords], dim=1)
 
         t_masks = masks*task_masks # if self.erase_task_memory else masks
-        #masks = t_masks #for the tests
+        if self.clear_env_lstm:
+            masks = t_masks #for the tests
+
         env_h, env_c = net_state['env_h']*masks, net_state['env_c']*masks
         task_h, task_c = net_state['task_h']*t_masks, net_state['task_c']*t_masks
 

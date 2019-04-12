@@ -12,7 +12,7 @@ def _to_numpy(torch_variable, flatten=False):
     return torch_variable.data.cpu().numpy()
 
 
-@model_evaluation
+@model_evaluation()
 def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_prediction_rule=None):
     """
     Runs play with the network for num_episodes episodes.
@@ -80,7 +80,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None, task_pr
     return episode_steps, episode_rewards, termination_model_stats, task_stats
 
 
-@model_evaluation
+@model_evaluation()
 def visual_eval(network, env_creator, num_episodes=1, greedy=False, verbose=0, delay=0.05, task_prediction_rule=None):
     episode_rewards = []
     episode_steps = []

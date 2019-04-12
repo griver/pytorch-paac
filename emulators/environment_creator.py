@@ -46,7 +46,7 @@ class BaseEnvironmentCreator(object):
         Сreates a new environment that can be used for training
         or testing an agent
         :arg specific_args - Args specific for this particular game instance.
-        All args needed for environment creation that wasn't
+        All main_args needed for environment creation that wasn't
         specified in  the argument will be taken from self.default_args()
 
         """

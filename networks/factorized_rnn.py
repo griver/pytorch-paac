@@ -1,10 +1,60 @@
 from torch.nn.modules import rnn
 from torch import nn
 from torch.nn import functional as F
-from torch.nn._functions.thnn import rnnFusedPointwise as fusedBackend
+#from torch.nn._functions.thnn import rnnFusedPointwise as fusedBackend
 import torch as th
 import math
 import warnings
+
+from torch.autograd.function import Function, once_differentiable
+from torch._thnn import type2backend
+
+class LSTMFused(Function):
+    @staticmethod
+    def forward(ctx, input_gate, hidden_gate, cx, ibias=None, hbias=None):
+        ctx.backend = type2backend[input_gate.type()]
+        hy = input_gate.new()
+        cy = input_gate.new()
+
+        ctx.has_bias = False
+        if ibias is not None:
+            ctx.has_bias = True
+            if ibias.dim() == 1:
+                ibias = ibias.unsqueeze(0)
+            if hbias.dim() == 1:
+                hbias = hbias.unsqueeze(0)
+
+        # input_gate gets overwritten with some intermediate values to use in backwards
+        ctx.backend.LSTMFused_updateOutput(
+            ctx.backend.library_state,
+            input_gate, hidden_gate,
+            ibias, hbias,
+            cx, hy, cy)
+
+        ctx.hgate_size = hidden_gate.size()
+        ctx.save_for_backward(input_gate, cx, cy)
+
+        return hy, cy
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, *gradOutput):
+        ctx.backend = type2backend[gradOutput[0].type()]
+        gradInputCx = gradOutput[0].new()
+        gradInGates = gradOutput[0].new(*ctx.hgate_size)
+
+        saved_tens, cx, cy = ctx.saved_tensors
+        ctx.backend.LSTMFused_updateGradInput(
+            ctx.backend.library_state,
+            saved_tens, gradInGates, cx, cy,
+            gradOutput[0], gradOutput[1], gradInputCx)
+
+        gb1 = gb2 = None
+        if ctx.has_bias:
+            gb1 = gradInGates.sum(0, keepdim=False)
+            gb2 = gradInGates.sum(0, keepdim=False)
+
+        return gradInGates, gradInGates, gradInputCx, gb1, gb2
 
 
 class FactorizedLSTMCell(rnn.RNNCellBase):
@@ -111,7 +161,7 @@ def batch_weights_lstm_forward(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None):
     if input.is_cuda:
         igates = batch_linear(input, w_ih)
         hgates = batch_linear(hidden[0], w_hh)
-        state = fusedBackend.LSTMFused.apply
+        state = LSTMFused.apply
         return state(igates, hgates, hidden[1]) if b_ih is None else state(igates, hgates, hidden[1], b_ih, b_hh)
 
     hx, cx = hidden

@@ -5,18 +5,29 @@ import torch
 import torch.nn.functional as F
 import time
 
-def model_evaluation(eval_function):
-    def wrapper(network, *args, **kwargs):
-        prev_mode = network.training
-        network.eval() #set to the inference mode
-        with torch.no_grad():
-            eval_stats = eval_function(network, *args, **kwargs)
-        network.train(prev_mode)
-        return eval_stats
+def model_evaluation(num_networks=1):
 
-    return wrapper
+    def real_decorator(eval_function):
 
-@model_evaluation
+        def wrapper(*args, **kwargs):
+            networks = args[:num_networks]
+            prev_modes = [net.training for net in networks]
+            for net in networks:
+                net.eval() #set to the inference mode
+
+            with torch.no_grad():
+                eval_stats = eval_function(*args, **kwargs)
+
+            for net, prev_mode in zip(networks, prev_modes):
+                net.train(prev_mode)
+
+            return eval_stats
+
+        return wrapper
+
+    return  real_decorator
+
+@model_evaluation()
 def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     """
     Runs play with the network for num_episodes episodes.
@@ -66,7 +77,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     return episode_steps, episode_rewards
 
 
-@model_evaluation
+@model_evaluation()
 def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, delay=0.05,
                 **env_kwargs):
     """

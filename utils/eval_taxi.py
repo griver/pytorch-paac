@@ -38,23 +38,77 @@ def set_user_defined_episodes(env):
 
     env.game._choose_reset_config = choose_new_config
 
-
-@model_evaluation
-def location_frequency_eval(network, env_creator, num_episodes=1, greedy=False,
+@model_evaluation(num_networks=2)
+def location_frequency_eval(net_a, net_b, env_creator, num_episodes=1, greedy=False,
                             termination_threshold=0.5):
     import cv2
-    assert network.training == False, 'You should set the network to eval mode before testing!'
+    assert not (net_a.training or net_b.training),\
+        'You should set your models to the eval mode before testing!'
 
     episode_rewards = []
     episode_steps = []
     logging.info('Evaluate stochastic policy' if not greedy else 'Evaluate deterministic policy')
-    device = network._device
+    device = net_a._device
 
     extra_inputs = {
         'greedy': greedy,
         'termination_threshold':termination_threshold
     }
+    env = env_creator.create_environment(np.random.randint(1000))
 
+    task2visited_a = collect_location_frequency(net_a, env, num_episodes, device, extra_inputs)
+    net_b.clear_env_lstm = True
+    task2visited_b = collect_location_frequency(net_b, env, num_episodes, device, extra_inputs)
+    while True:
+
+        try:
+            cmd, *args = input("Please select the task and the orders to compare:").split()
+            if cmd == 'move':
+                obj_type, x, y = args
+                env.map_viewer.move_obj(obj_type, (int(x), int(y)))
+            elif cmd == 'show':
+                t1, ord1, t2, ord2 = args
+                ord1, ord2 = int(ord1), int(ord2)
+                freqs_a1 = task2visited_a[t1][ord1]
+                freqs_a2 = task2visited_a[t2][ord2]
+
+                freqs_b1 = task2visited_b[t1][ord1]
+                freqs_b2 = task2visited_b[t2][ord2]
+
+                #loc_counts1 = Counter(task2visited_a[t1][ord1])
+                #loc_counts2 = Counter(task2visited_a[t1][ord2])
+                #max_count = max(itertools.chain(loc_counts1.values(), loc_counts2.values()))
+                #freqs1 = {loc:(count / max_count) for loc, count in loc_counts1.items()}
+                #freqs2 = {loc:(count / max_count) for loc, count in loc_counts2.items()}
+
+                if not (freqs_a1 and freqs_a2 and freqs_b1 and freqs_b2):
+                    print('There is no data for task={} and orders: {}, {}'.format(t1, ord1, ord2))
+                freqs_and_keys = [
+                    (freqs_a1, ('algo_A', t1, ord1)),
+                    (freqs_a2, ('algo_A', t2, ord2)),
+                    (freqs_b1, ('algo_B', t1, ord1)),
+                    (freqs_b2, ('algo_B', t2, ord2))
+                ]
+                imgs_and_keys = []
+                for freqs, key in freqs_and_keys:
+                    img = env.map_viewer.show_frequency(freqs,'{}:{}#{}'.format(*key))
+                    imgs_and_keys.append((img, key))
+
+                key = env.from_keyboard(allowed_keys=['s','c'])
+                if key == 's':
+                    template = './pretrained/gif/LocFrequency-16x16-{}-{}#{}.png'
+                    for img, key in imgs_and_keys:
+                        cv2.imwrite(template.format(*key), img)
+
+                cv2.destroyAllWindows()
+                cv2.waitKey(1)
+        except Exception as e:
+            print(e)
+
+    return episode_steps, episode_rewards, task2visited_a
+
+
+def collect_location_frequency(network, env, num_episodes, device, extra_inputs):
     def unsqueeze(emulator_outputs):
         outputs = list(emulator_outputs)
         state, info = outputs[0], outputs[-1]
@@ -64,15 +118,12 @@ def location_frequency_eval(network, env_creator, num_episodes=1, greedy=False,
             outputs[-1] = {k:np.asarray(v)[np.newaxis] for k, v in info.items()}
         return outputs
 
-    #task2visited[task_name] returns a dict that maps task_order_in_episode to list_of_visited_locations
-    task2visited = defaultdict( lambda: defaultdict(list) )
-
-    env = env_creator.create_environment(np.random.randint(1000))
-
-    display = env.game.display
     task = lambda:env.game.task()
     task_id = lambda:type(task()).__name__
     agent_loc = lambda:env.game.agent.location
+
+    # task2visited[task_name] returns a dict that maps task_order_in_episode to list_of_visited_locations
+    task2visited = defaultdict(lambda:defaultdict(list))
 
     for episode in tqdm(range(num_episodes)):
         env.reset()
@@ -81,7 +132,7 @@ def location_frequency_eval(network, env_creator, num_episodes=1, greedy=False,
             rnn_state = network.init_rnn_state(1)
             state, info = unsqueeze(env.reset())
             total_r = 0
-            #display()
+            # display()
             task2order = defaultdict(lambda:0)
 
             for t in itertools.count():
@@ -90,65 +141,39 @@ def location_frequency_eval(network, env_creator, num_episodes=1, greedy=False,
                 act, done_pred, rnn_state, model_info = outputs
                 act = act.item()
 
-                #input('Press any button to continue..\n')
+                # input('Press any button to continue..\n')
                 t_id = task_id()
                 t_order = task2order[t_id]
                 task2visited[t_id][t_order].append(agent_loc())
 
                 state, reward, is_done, info = unsqueeze(env.next(act))
-                mask[0] = 1.-is_done
+                mask[0] = 1. - is_done
                 total_r += reward
-                #display()
+                # display()
 
                 if is_done: break
 
                 if info['task_status'][0]:
                     task2order[t_id] += 1
 
-            episode_rewards.append(total_r)
-            episode_steps.append(t + 1)
+            #episode_rewards.append(total_r)
+            #episode_steps.append(t + 1)
         finally:
             env.close()
 
     env.reset()
-    #process lists of visited locations to get relative locations frequencies for each task and order value.
+    # process lists of visited locations to get relative locations frequencies for each task and order value.
     for t_id in list(task2visited.keys()):
         for ord_id in list(task2visited[t_id].keys()):
             print('{}#{}'.format(t_id, ord_id))
             loc_counts = Counter(task2visited[t_id][ord_id])
             max_count = max(loc_counts.values())
-            task2visited[t_id][ord_id] = {loc:(count/max_count) for loc, count in loc_counts.items()}
+            task2visited[t_id][ord_id] = {loc:(count / max_count) for loc, count in loc_counts.items()}
+
+    return task2visited
 
 
-    while True:
-        t_id, ord1, ord2 = input("Please select the task and the orders to compare:").split()
-        ord1, ord2 = int(ord1), int(ord2)
-        freqs1 = task2visited[t_id][ord1]
-        freqs2 = task2visited[t_id][ord2]
-
-        #loc_counts1 = Counter(task2visited[t_id][ord1])
-        #loc_counts2 = Counter(task2visited[t_id][ord2])
-        #max_count = max(itertools.chain(loc_counts1.values(), loc_counts2.values()))
-        #freqs1 = {loc:(count / max_count) for loc, count in loc_counts1.items()}
-        #freqs2 = {loc:(count / max_count) for loc, count in loc_counts2.items()}
-
-        if not (freqs1 and freqs2):
-            print('There is no data for task={} and orders: {}, {}'.format(t_id, ord1, ord2))
-        img1 = env.map_viewer.show_frequency(freqs1,'{}#{}'.format(t_id, ord1))
-        img2 = env.map_viewer.show_frequency(freqs2, '{}#{}'.format(t_id, ord2))
-        key = env.from_keyboard(allowed_keys=['s','c'])
-        if key == 's':
-            template = './pretrained/gif/LocationFrequency-15x15-sem-a2c-{}#{}.png'
-            cv2.imwrite(template.format(t_id, ord1), img1)
-            cv2.imwrite(template.format(t_id, ord2), img2)
-        cv2.destroyAllWindows()
-        cv2.waitKey(1)
-
-    return episode_steps, episode_rewards, task2visited
-
-
-
-@model_evaluation
+@model_evaluation()
 def count_tasks_lengths(network, env_creator, num_episodes=1, greedy=False,
                 termination_threshold=0.5):
         """
@@ -239,7 +264,7 @@ def count_tasks_lengths(network, env_creator, num_episodes=1, greedy=False,
         return episode_steps, episode_rewards, None
 
 
-@model_evaluation
+@model_evaluation()
 def visual_eval(network, env_creator, num_episodes=1, greedy=False,
                 termination_threshold=0.5):
     """
@@ -314,7 +339,7 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False,
     return episode_steps, episode_rewards, None
 
 
-@model_evaluation
+@model_evaluation()
 def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termination_threshold=0.5):
     assert network.training == False, 'You should set the network to eval mode before testing!'
 
@@ -392,7 +417,7 @@ class TerminationStats(dict):
 
 
 from tqdm import tqdm
-@model_evaluation
+@model_evaluation()
 def doneprobs_eval(network, env_creator, num_episodes=1, greedy=False,
                 termination_threshold=0.5, verbose=False, delay=2):
     """

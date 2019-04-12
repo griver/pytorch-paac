@@ -19,7 +19,7 @@ from collections import namedtuple
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 FF_HISTORY_WINDOW=4
 LSTM_HISTORY_WINDOW=1
-ARGS_FILE='args.json'
+ARGS_FILE='main_args.json'
 
 
 def args_to_str(args):
@@ -87,7 +87,7 @@ def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True)
 
 def main(args):
     utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved args in the {0} folder'.format(args.debugging_folder))
+    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
     logging.info(args_to_str(args))
 
     env_creator = get_environment_creator(args)

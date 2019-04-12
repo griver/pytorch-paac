@@ -3,9 +3,9 @@ from .mazebase_emulator import *
 from .taxi_game_objects import OldTaxi, FewHotEncoder, FewHotEncoderPlus
 from .taxi_game import Taxi, FixedTaxi
 from .taxi_plus_game import TaxiPlus
-
+import mazebase.items as maze_items
 import os.path as path
-
+from utils.allsubclasses import find_subclass
 import glob
 import cv2
 import imageio
@@ -113,6 +113,7 @@ class MapViewer(object):
         spec_objs = [self.game.target, self.game.passenger, self.game.agent]
         if hasattr(self.game, 'cargo'):
             spec_objs.append(self.game.cargo)
+
         for obj in spec_objs:
             x,y = obj.location
             y_hat = self.game.height - y - 1
@@ -122,6 +123,25 @@ class MapViewer(object):
         cv2.imshow(im_title, self.img)
 
         return self.img
+
+    def move_obj(self, obj_name, new_loc):
+        """
+        If, for example, agent ends up in the same location as the passenger,
+        then one of them will cover the other on the image.
+        The function is a fast kludge to show all desirable objects.
+        We simply specify move one of the objects to a new location, e.g.
+        move the agent to it's starting point when display visitation frequency heatmap!
+        """
+        if hasattr(self.game, obj_name):
+            obj_id = getattr(self.game, obj_name).id
+            self.game._move_item(obj_id, new_loc)
+        else: # if, for some reason there is no such object create it!
+            cls = find_subclass(maze_items.MazeItem, obj_name)
+            if cls is None:
+                raise ValueError("Can't find a mazeitem with name {}".format(obj_name))
+            obj = cls(location=new_loc)
+            setattr(self.game, obj_name, obj)
+            self.game._add_item(obj)
 
     def _needs_drawing(self, item):
         """
@@ -175,7 +195,7 @@ class TaxiEmulator(MazebaseEmulator):
                  icon_folder=None,
                  **unknown):
         if verbose >= 2:
-            logging.debug('Emulator#{} received unknown args: {}'.format(emulator_id, unknown))
+            logging.debug('Emulator#{} received unknown main_args: {}'.format(emulator_id, unknown))
         self.emulator_id = emulator_id
         available_games = self.available_games()
         assert game in available_games, '{0}: There is no such game in the mazebase framework'.format(game)
@@ -216,7 +236,7 @@ class TaxiEmulator(MazebaseEmulator):
         # Mazebase generates random samples
         # within itself in different modules across the package; therefore,
         # we can't fix a random generator without rewriting mazebase.
-        # self.rand_gen = random.Random(args.random_seed)
+        # self.rand_gen = random.Random(main_args.random_seed)
 
 
     def reset(self):

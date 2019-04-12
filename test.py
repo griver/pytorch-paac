@@ -12,7 +12,7 @@ from train import get_environment_creator, create_network, eval_network, evaluat
 
 def fix_args_for_test(args, train_args):
     for k, v in train_args.items():
-        if getattr(args, k, None) == None: #this includes cases where args.k is None
+        if getattr(args, k, None) == None: #this includes cases where main_args.k is None
             setattr(args, k, v)
 
     args.max_global_steps = 0
