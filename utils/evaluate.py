@@ -55,7 +55,7 @@ def stats_eval(network, batch_emulator, greedy=False, num_episodes=None):
     for t in itertools.count():
         acts, rnn_state = choose_action(network, states, infos, mask, rnn_state, greedy)
 
-        states, rewards, is_done, infos =  batch_emulator.next(acts)
+        states, rewards, is_done, infos =  batch_emulator.next(acts.tolist())
         mask[:,0] = torch.from_numpy(1.-is_done).to(device) #mask isn't used anywhere else, thus we can just rewrite it.
 
         running = np.logical_not(terminated)
@@ -123,7 +123,7 @@ def visual_eval(network, env_creator, greedy=False, num_episodes=1, verbose=0, d
                 if is_done: break
 
             if verbose > 0:
-                print('Episode#{} total_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
+                print('Episode#{} total_steps={} score={}'.format(episode + 1, t + 1, total_r))
             episode_rewards.append(total_r)
             episode_steps.append(t + 1)
         finally:

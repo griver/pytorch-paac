@@ -230,7 +230,7 @@ class ParallelActorCritic(object):
         for t in range(self.rollout_steps):
             outputs = self.choose_action(state, info, mask.unsqueeze(1), rnn_state)
             a_t, v_t, log_probs_t, entropy_t, rnn_state = outputs
-            state, r, done, info = self.batch_env.next(a_t)
+            state, r, done, info = self.batch_env.next(a_t.tolist())
             #!!! self.batch_env returns references to arrays in shared memory,
             # always copy their values if you want to use them later,
             #  as the values will be rewritten at the next step !!!

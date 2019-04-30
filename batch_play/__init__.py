@@ -1,2 +1,2 @@
-from .batch_emulator import ConcurrentBatchEmulator, SequentialBatchEmulator
-from .worker import WorkerProcess
+from .batch_emulator import SharedMemBatchEnv, SequentialBatchEnv
+from .worker import SharedMemWorker

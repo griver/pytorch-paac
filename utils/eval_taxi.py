@@ -370,7 +370,7 @@ def stats_eval(network, batch_emulator, num_episodes=None, greedy=False, termina
         outputs = choose_action(network, state, info, mask, rnn_state, **extra_inputs)
         acts, done_preds, rnn_state, _ = outputs
 
-        state, reward, is_done, info =  batch_emulator.next(acts)
+        state, reward, is_done, info =  batch_emulator.next(acts.tolist())
 
         mask[:,0] = th.from_numpy(1.-is_done).to(device) #mask isn't used anywhere else, thus we can just rewrite it.
         #determine emulators states and collect stats about episodes' rewards and lengths:

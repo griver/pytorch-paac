@@ -5,7 +5,80 @@ import logging
 
 class WorkerError(Exception): pass
 
-class WorkerProcess(Process):
+
+class PipeWorker(Process):
+    class Command(IntEnum):
+        CLOSE = 0
+        NEXT = 1
+        RESET = 2
+        CALL_METHOD = 3
+
+    def __init__(self, id, create_envs, worker_conn, master_conn):
+        super(PipeWorker, self).__init__()
+        self.daemon = True
+        self.id = id
+        self.conn = worker_conn
+        self.master_conn = master_conn
+        self.create_envs = create_envs
+
+    def run(self):
+        super(PipeWorker, self).run()
+        self._run()
+
+    def _run(self):
+        self.master_conn.close()
+        del self.master_conn
+
+        envs = self.create_envs()
+        num_envs = len(envs)
+        states = [None]*num_envs
+        infos = [None]*num_envs
+        rs = [None]*num_envs
+        dones = [None]*num_envs
+
+        try:
+            while True:
+                command, data = self.conn.recv()
+
+                if command == self.Command.NEXT:
+                    for i, (env, action) in enumerate(zip(envs, data)):
+                        states[i], rs[i], dones[i], infos[i] = env.next(action)
+                        if dones:
+                            states[i], infos[i] = env.reset()
+                    self.conn.send((states, rs, dones, infos))
+
+                elif command == self.Command.CALL_METHOD:
+                    results = self._call_method(envs, *data)
+                    self.conn.send(results)
+
+                elif command == self.Command.RESET:
+                    for i, env in enumerate(envs):
+                        states[i], infos[i] = env.reset()
+                    self.conn.send((states, infos))
+
+                elif command == self.Command.CLOSE:
+                    self.conn.close()
+                    break
+
+                else:
+                    raise WorkerError("{} has received unknown command {}".format(type(self),command))
+        except KeyboardInterrupt:
+            logging.exception('{} caught KeyboardInterrupt!'.format(type(self)))
+
+        finally:
+            for env in envs:
+                env.close()
+            logging.info('{}#{} finished!'.format(type(self),self.id+1))
+
+    def _call_method(self, envs, method_name, arg_list):
+        results = [None]*len(envs)
+        for i, emulator in enumerate(envs):
+            args, kwargs = arg_list[i]
+            results[i] = getattr(emulator, method_name)(*args, **kwargs)
+        return results
+
+
+class SharedMemWorker(Process):
     required_outputs = {'state', 'is_done', 'reward'}
     required_inputs = {'action'}
     class Command(IntEnum):
@@ -15,7 +88,7 @@ class WorkerProcess(Process):
         CALL_METHOD = 3
 
     def __init__(self, id, create_emulators, queue, barrier, required_vars, extra_outputs):
-        super(WorkerProcess, self).__init__()
+        super(SharedMemWorker, self).__init__()
         self.daemon = True
         self.id = id
         self.create_emulators = create_emulators
@@ -37,7 +110,7 @@ class WorkerProcess(Process):
             setattr(self, name, variables[name])
 
     def run(self):
-        super(WorkerProcess, self).run()
+        super(SharedMemWorker, self).run()
         self._run()
 
     def _run(self):
@@ -81,7 +154,7 @@ class WorkerProcess(Process):
                     raise WorkerError("{} has received unknown command {}".format(type(self),command))
         finally:
             for emulator in emulators: emulator.close()
-            logging.debug('WorkerProcess#{} finished!'.format(self.id+1))
+            logging.debug('SharedMemWorker#{} finished!'.format(self.id+1))
 
     def _call_method(self, emulators, method_name, arg_list):
         results = [None]*len(emulators)

@@ -5,7 +5,7 @@ from emulators import TaxiGamesCreator
 import torch
 from algos_multi_task import MultiTaskA2C
 from utils.lr_scheduler import LinearAnnealingLR
-from batch_play import ConcurrentBatchEmulator, WorkerProcess
+from batch_play import SharedMemBatchEnv, SharedMemWorker
 
 
 def get_arg_parser():
@@ -64,8 +64,8 @@ def split_network_parameters(net, retrain_layers, finetuning=True):
 
 
 def main(args):
-    utils.save_args(args, args.debugging_folder, file_name=mt_train.ARGS_FILE)
-    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
+    utils.save_args(args, args.save_folder, file_name=mt_train.ARGS_FILE)
+    logging.info('Saved main_args in the {0} folder'.format(args.save_folder))
     logging.info(mt_train.args_to_str(args))
 
     env_creator = TaxiGamesCreator(**vars(args))
@@ -81,7 +81,7 @@ def main(args):
     opt = torch.optim.RMSprop([p for n, p in train_params], lr=args.initial_lr, eps=args.e)
     lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    batch_env = SharedMemBatchEnv(SharedMemWorker, env_creator, args.num_workers, args.num_envs)
 
     mt_train.set_exit_handler(
         mt_train.concurrent_emulator_handler(batch_env)
@@ -93,7 +93,7 @@ def main(args):
             network, opt,
             lr_scheduler,
             batch_env,
-            save_folder=args.debugging_folder,
+            save_folder=args.save_folder,
             global_step=0,
             max_global_steps=args.max_global_steps,
             rollout_steps=args.rollout_steps,

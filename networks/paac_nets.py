@@ -152,7 +152,6 @@ class VizdoomLSTM(AtariLSTM):
 
     def _create_network(self):
         C, H, W = self._obs_shape
-        hidden_dim = 256
         self.conv1 = nn.Conv2d(C, 16, (4, 4), stride=2)
         self.conv2 = nn.Conv2d(16, 32, (4, 4), stride=2)
         self.conv3 = nn.Conv2d(32,32, (3,3), stride=2)
@@ -183,7 +182,6 @@ class BigLSTM(AtariLSTM):
 
     def _create_network(self):
         C, H, W = self._obs_shape
-        hidden_dim = 256
         self.obs_encoder = nn.Sequential(
             nn.Conv2d(C, 16, (4, 4), stride=2),
             nn.ReLU(),

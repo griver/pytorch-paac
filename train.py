@@ -11,7 +11,7 @@ from utils.lr_scheduler import LinearAnnealingLR
 import utils.evaluate as evaluate
 from networks import vizdoom_nets, atari_nets
 from algos import ParallelActorCritic, ProximalPolicyOptimization
-from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
+from batch_play import SharedMemBatchEnv, SequentialBatchEnv, SharedMemWorker
 import multiprocessing
 import numpy as np
 from collections import namedtuple
@@ -60,7 +60,7 @@ def concurrent_emulator_handler(batch_env):
 
 TrainingStats = namedtuple("TrainingStats", ['mean_r', 'max_r', 'min_r', 'std_r', 'mean_steps'])
 def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True):
-    emulator = SequentialBatchEmulator(
+    emulator = SequentialBatchEnv(
         env_creator, num_episodes, False,
         specific_emulator_args={'single_life_episodes':False}
     )
@@ -86,8 +86,8 @@ def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True)
 
 
 def main(args):
-    utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
+    utils.save_args(args, args.save_folder, file_name=ARGS_FILE)
+    logging.info('Saved main_args in the {0} folder'.format(args.save_folder))
     logging.info(args_to_str(args))
 
     env_creator = get_environment_creator(args)
@@ -110,12 +110,12 @@ def main(args):
 
     opt = OptimizerCls(network.parameters(), lr=args.initial_lr, eps=args.e)
     global_step = AlgorithmCls.update_from_checkpoint(
-        args.debugging_folder, network, opt,
+        args.save_folder, network, opt,
         use_cpu=args.device == 'cpu'
     )
     lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    batch_env = SharedMemBatchEnv(SharedMemWorker, env_creator, args.num_workers, args.num_envs)
 
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
@@ -125,7 +125,7 @@ def main(args):
             lr_scheduler,
             batch_env,
             global_step=global_step,
-            save_folder=args.debugging_folder,
+            save_folder=args.save_folder,
             max_global_steps=args.max_global_steps,
             rollout_steps=args.rollout_steps,
             gamma=args.gamma,
@@ -135,7 +135,7 @@ def main(args):
             use_gae=args.use_gae,
             **algo_specific_args)
         # evaluation results are saved as summaries of the training process:
-        learner.evaluate = lambda network: eval_network(network, env_creator, 10)
+        learner.evaluate = lambda network: eval_network(network, env_creator, 1)
         learner.train()
     finally:
         batch_env.close()
@@ -204,8 +204,8 @@ def add_algo_args(parser, framework):
     parser.add_argument('-w', '--workers', default=default_workers, type=int,
                         help="Number of parallel worker processes to run the environments. "+show_default,
                         dest="num_workers")
-    parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
-                        help="Folder where to save training progress.", dest="debugging_folder")
+    parser.add_argument('-sf', '--save_folder', default='logs/', type=str,
+                        help="Folder where to save training progress.", dest="save_folder")
     parser.add_argument('--critic_coef', default=0.5, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
 

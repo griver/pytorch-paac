@@ -68,7 +68,7 @@ class VizdoomEmulator(BaseEnvironment):
         self.observation_shape = (self.history_window*num_channels,) + self.screen_size
 
         self.history = create_history_observation(self.history_window)
-        # If episode is done WorkerProcess drops last returned state and
+        # If episode is done SharedMemWorker drops last returned state and
         #  returns the initial state of a new episode.
         # Therefore it doesn't really matter that terminal_screen is None
         self.terminal_obs = None

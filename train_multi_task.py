@@ -13,7 +13,7 @@ from algos_multi_task import MultiTaskA2C, MultiTaskPPO
 from networks import taxi_nets, preprocess_taxi_input
 
 from train import args_to_str, concurrent_emulator_handler, set_exit_handler
-from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
+from batch_play import SharedMemBatchEnv, SequentialBatchEnv, SharedMemWorker
 import multiprocessing
 
 
@@ -35,7 +35,7 @@ ExtraTrainingStats = namedtuple("ExtraTrainingStats",
 
 def eval_network(network, env_creator, num_episodes,
                  greedy=False, term_threshold=0.5, verbose=True):
-    emulator = SequentialBatchEmulator(
+    emulator = SequentialBatchEnv(
         env_creator, num_episodes, False,
         specific_emulator_args={'single_life_episodes':False}
     )
@@ -83,8 +83,8 @@ def eval_network(network, env_creator, num_episodes,
 
 
 def main(args):
-    utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
+    utils.save_args(args, args.save_folder, file_name=ARGS_FILE)
+    logging.info('Saved main_args in the {0} folder'.format(args.save_folder))
     logging.info(args_to_str(args))
 
     env_creator = TaxiGamesCreator(**vars(args))
@@ -110,12 +110,12 @@ def main(args):
 
     opt = OptimizerCls(network.parameters(), lr=args.initial_lr, eps=args.e)
     global_step = AlgorithmCls.update_from_checkpoint(
-        args.debugging_folder,network, opt,
+        args.save_folder,network, opt,
         use_cpu=args.device=='cpu'
     )
     lr_scheduler = LinearAnnealingLR(opt, args.lr_annealing_steps)
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
+    batch_env = SharedMemBatchEnv(SharedMemWorker, env_creator, args.num_workers, args.num_envs)
 
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
@@ -125,7 +125,7 @@ def main(args):
             lr_scheduler,
             batch_env,
             global_step=global_step,
-            save_folder=args.debugging_folder,
+            save_folder=args.save_folder,
             max_global_steps=args.max_global_steps,
             rollout_steps=args.rollout_steps,
             gamma=args.gamma,
@@ -247,7 +247,7 @@ def get_arg_parser():
     parser.add_argument('-w', '--workers', default=default_workers, type=int, dest="num_workers",
                         help="Number of parallel worker processes to handle the environments. " + show_default)
     #save and print:
-    parser.add_argument('-df', '--debugging_folder', default='test_log/', type=str, dest="debugging_folder",
+    parser.add_argument('-sf', '--save_folder', default='test_log/', type=str, dest="save_folder",
                         help="Folder where to save summaries and trained models"+show_default)
     parser.add_argument('-v', '--verbose', default=1, type=int, dest="verbose",
                         help="determines how much information to show during training" + show_default)

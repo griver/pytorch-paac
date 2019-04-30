@@ -124,7 +124,7 @@ def visual_eval(network, env_creator, num_episodes=1, greedy=False, verbose=0, d
             if verbose > 0:
                 print('\r#{}: {} n_steps={}'.format(
                     len(emulator._completed), task_str(emulator.task, emulator), prev_task.n_steps))
-                print('Episode#{} num_steps={} total_reward={}'.format(episode + 1, t + 1, total_r))
+                print('Episode#{} num_steps={} score={}'.format(episode + 1, t + 1, total_r))
             episode_rewards.append(total_r)
             episode_steps.append(t + 1)
         finally:

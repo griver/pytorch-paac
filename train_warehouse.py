@@ -10,7 +10,7 @@ from utils import eval_warehouse as evaluate
 from networks import warehouse_nets
 from collections import namedtuple
 from algos_multi_task import MultiTaskA2C
-from batch_play import ConcurrentBatchEmulator, SequentialBatchEmulator, WorkerProcess
+from batch_play import SharedMemBatchEnv, SequentialBatchEnv, SharedMemWorker
 import multiprocessing
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 ARGS_FILE='args_multi_task.json'
@@ -23,8 +23,8 @@ TrainingStats = namedtuple("TrainingStats",
                            't_ratio', 'p_ratio'])
 
 def eval_network(network, env_creator, num_episodes, greedy=False, verbose=True, **emulator_args):
-    emulator = SequentialBatchEmulator(env_creator, num_episodes, auto_reset=False,
-                                       specific_emulator_args=emulator_args)
+    emulator = SequentialBatchEnv(env_creator, num_episodes, auto_reset=False,
+                                  specific_emulator_args=emulator_args)
     try:
         stats = evaluate.stats_eval(network, emulator, greedy=greedy)
     finally:
@@ -63,8 +63,8 @@ def main(args):
     network_creator, env_creator = get_network_and_environment_creator(args)
     logging.info(args_to_str(args))
 
-    batch_env = ConcurrentBatchEmulator(WorkerProcess, env_creator, args.num_workers, args.num_envs)
-    #batch_env = SequentialBatchEmulator(env_creator, main_args.num_envs, init_env_id=1)
+    batch_env = SharedMemBatchEnv(SharedMemWorker, env_creator, args.num_workers, args.num_envs)
+    #batch_env = SequentialBatchEnv(env_creator, main_args.num_envs, init_env_id=1)
     set_exit_handler(concurrent_emulator_handler(batch_env))
     try:
         batch_env.start_workers()
@@ -141,8 +141,8 @@ def add_multi_task_learner_args(parser):
     parser.add_argument('-w', '--workers', default=default_workers, type=int,
                         help="Number of parallel worker processes to run the environments. "+show_default,
                         dest="num_workers")
-    parser.add_argument('-df', '--debugging_folder', default='logs/', type=str,
-                        help="Folder where to save training progress.", dest="debugging_folder")
+    parser.add_argument('-sf', '--save_folder', default='logs/', type=str,
+                        help="Folder where to save training progress.", dest="save_folder")
     parser.add_argument('--critic_coef', default=0.25, dest='critic_coef', type=float,
                         help='Weight of the critic loss in the total loss'+show_default)
     parser.add_argument('-tmc --termination_model_coef', default=1., dest='termination_model_coef', type=float,
@@ -163,6 +163,6 @@ def get_arg_parser():
 
 if __name__ == '__main__':
     args = get_arg_parser().parse_args()
-    utils.save_args(args, args.debugging_folder, file_name=ARGS_FILE)
-    logging.info('Saved main_args in the {0} folder'.format(args.debugging_folder))
+    utils.save_args(args, args.save_folder, file_name=ARGS_FILE)
+    logging.info('Saved main_args in the {0} folder'.format(args.save_folder))
     main(args)

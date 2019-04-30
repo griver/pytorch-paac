@@ -48,7 +48,7 @@ if __name__ == '__main__':
     #args_line = '-g taxi -d cpu -ew 1 -ec 2 ' + \
     #    "--max_global_steps 500"
     args_line = '-g taxi_plus -d cpu -w 1 -n 1 --max_global_steps 300 ' \
-                '-df debug_logs -m 12 12 --arch lstm --random_seed 17 -fr -0.8 ' \
+                '-sf debug_logs -m 12 12 --arch lstm --random_seed 17 -fr -0.8 ' \
                 '--view_size 5 --max_episode_steps 40 -t find_p pickup convey_p find_c pickup_c convey_c --random_seed 17'\
 
     print('Taxi Emulator:', tr.TaxiGamesCreator.available_games())
@@ -89,4 +89,4 @@ if __name__ == '__main__':
             env.map_viewer.save_episode('taxi_plus_12x12_ep{}.gif'.format(i + 1))
 
         print('done!!')
-        print('total_steps:', t+1, 'total_reward:', env.game.reward_so_far(), total_r)
+        print('total_steps:', t+1, 'score:', env.game.reward_so_far(), total_r)
