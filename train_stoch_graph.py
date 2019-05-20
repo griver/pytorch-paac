@@ -16,7 +16,7 @@ from utils.lr_scheduler import LinearAnnealingLR
 from batch_play import SharedMemWorker, SharedMemBatchEnv, SequentialBatchEnv
 
 from collections import namedtuple
-TrainingStats = namedtuple("TrainingStats", ['mean_r', 'mean_steps', 'std_steps'])
+#TrainingStats = namedtuple("TrainingStats", ['mean_r', 'mean_steps', 'std_steps' ])
 
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
@@ -74,6 +74,7 @@ def main(args):
             **algo_specific_args)
         # evaluation results are saved as summaries of the training process:
         learner.evaluate = lambda network:eval_network(network, env_creator, 40)
+        learner.eval_every = 5*10240
         learner.train()
     finally:
         batch_env.close()
@@ -104,7 +105,7 @@ def eval_network(network, env_creator, num_episodes,
     mean_steps, std_steps = np.mean(num_steps), np.std(num_steps)
     mean_r = np.mean(rewards)
 
-    stats = TrainingStats(mean_r, mean_steps, std_steps)
+    stats = dict(quality=-mean_steps, mean_r=mean_r, mean_steps=mean_steps, std_steps=std_steps)
     if verbose:
         lines = ['Perfromed {0} tests:'.format(len(num_steps)),
                  'Mean number of steps: {0:.3f} | Std: {1:.3f}'.format(mean_steps, std_steps),

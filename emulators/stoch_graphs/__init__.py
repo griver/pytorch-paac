@@ -60,5 +60,7 @@ class StochGraphCreator(BaseEnvironmentCreator):
             '--seed', default=3, type=int, help='Sets the random seed.',
             dest='random_seed'
         )
-        #argparser.add_argument('-hw', '--history_window', type=int, default=1,
-        #                       help="Number of observations forming a state", dest='history_window')
+        argparser.add_argument(
+            '--living_r', default=0.0, type=float, dest='living_reward',
+            help='Unconditional reward/penalty at each step',
+        )

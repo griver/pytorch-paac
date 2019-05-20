@@ -164,12 +164,13 @@ class ParallelActorCritic(object):
         num_emulators = self.batch_env.num_emulators
         training_stats = []
         steps_per_update = num_emulators * self.rollout_steps
-        curr_mean_r = best_mean_r = float('-inf')
+        curr_quality = best_quality = float('-inf')
 
         if self.evaluate:
             stats = self.evaluate(self.network)
+            stats['num_episodes']=len(self.reward_history)
             training_stats.append((self.global_step, stats))
-            curr_mean_r = best_mean_r = stats.mean_r
+            curr_quality = stats['quality']
 
         state, info = self.batch_env.reset_all()
         #stores 0.0 in i-th element if the episode in i-th emulator has just started, otherwise stores 1.0
@@ -204,13 +205,14 @@ class ParallelActorCritic(object):
                 self.last_eval = self.global_step
                 if self.evaluate:
                     stats = self.evaluate(self.network)
+                    stats['num_episodes'] = len(self.reward_history)
                     training_stats.append((self.global_step, stats))
-                    curr_mean_r = stats.mean_r
+                    curr_quality = stats['quality']
 
             if self.global_step - self.last_save >= self.save_every:
                 is_best = False
-                if curr_mean_r > best_mean_r:
-                    best_mean_r = curr_mean_r
+                if curr_quality > best_quality:
+                    best_quality = curr_quality
                     is_best = True
                 self._save_progress(self.checkpoint_dir, summaries=training_stats, is_best=is_best)
                 training_stats = []

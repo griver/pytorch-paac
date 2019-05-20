@@ -100,7 +100,7 @@ def nx_graph_to_env(nx_graph, create_env=None):
     binary = '{0:0' + str(size_of_state_vector) + 'b}'
 
     env = create_env(size_of_state_vector, start_state_id=0)
-    print("environment type is:", type(env))
+    #print("environment type is:", type(env))
     points = np.empty(nx_graph.number_of_nodes(),dtype=Point)
 
     for i in range(nx_graph.number_of_nodes()):
